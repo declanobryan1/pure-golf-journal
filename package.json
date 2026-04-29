@@ -1,0 +1,22 @@
+{
+  "name": "pure-golf-journal",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pure Golf Journal — a golf course rating + scoring journal for iOS",
+  "scripts": {
+    "build": "./scripts/build-www.sh",
+    "cap:sync": "./scripts/build-www.sh && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 cap sync ios",
+    "cap:open": "cap open ios",
+    "cap:run": "./scripts/build-www.sh && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 cap run ios"
+  },
+  "dependencies": {
+    "@capacitor/app": "^6.0.3",
+    "@capacitor/browser": "^6.0.6",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/haptics": "^6.0.3",
+    "@capacitor/ios": "^6.1.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "appId": "com.declanobryan.puregolfjournal",
+  "appName": "Pure Golf Journal",
+  "webDir": "www",
+  "server": {
+    "iosScheme": "puregolfjournal"
+  },
+  "ios": {
+    "contentInset": "always",
+    "limitsNavigationsToAppBoundDomains": false
+  }
+}

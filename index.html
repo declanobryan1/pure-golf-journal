@@ -34,6 +34,13 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Capacitor runtime + plugin JS (only loaded when running inside the iOS app
+     via the cap/ folder copied by build-www.sh; missing in web preview, which is fine —
+     the app falls back to web OAuth when window.Capacitor isn't present). -->
+<script src="cap/capacitor.js"></script>
+<script src="cap/capacitor-browser.js"></script>
+<script src="cap/capacitor-app.js"></script>
+<script src="cap/capacitor-haptics.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
@@ -72,9 +79,16 @@ input,textarea,[contenteditable="true"],.selectable,.selectable *{-webkit-user-s
 img{-webkit-user-drag:none}
 html,body{overscroll-behavior:none}
 body{background:#EDE9E1;display:flex;justify-content:center;align-items:center;min-height:100vh;min-height:100dvh;font-family:var(--font-body);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;color:var(--c-text)}
+html,body{margin:0;padding:0}
 #root{width:100%;max-width:390px;height:100vh;height:100dvh;display:flex;flex-direction:column;background:var(--c-bg);overflow:hidden;box-shadow:0 0 0 1px rgba(0,0,0,0.04),0 20px 60px rgba(0,0,0,0.08)}
 @media (max-width:600px){body{background:var(--c-bg)}#root{max-width:none;box-shadow:none}}
 @media (display-mode:standalone){body{background:var(--c-bg)}#root{max-width:none;height:100dvh;box-shadow:none}}
+/* Capacitor iOS: WebView doesn't match display-mode:standalone, so we add .is-native
+   to body via JS below. This makes the cream background extend edge-to-edge so the
+   safe-area / home-indicator region matches the rest of the app. */
+html.is-native, html.is-native body{background:var(--c-bg);height:100%}
+html.is-native body{min-height:100vh;min-height:100dvh}
+html.is-native #root{max-width:none;box-shadow:none;height:100vh;height:100dvh}
 ::-webkit-scrollbar{width:0}
 
 /* ═════════ Motion system ═════════
@@ -174,6 +188,13 @@ input,textarea{touch-action:manipulation}
   <div class="pure-tagline">Golf Journal</div>
 </div>
 <div id="root"></div>
+<script>
+  /* Tag the html element when running inside Capacitor so the .is-native CSS
+     selectors above take effect (full-bleed background, no max-width container). */
+  if(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform()){
+    document.documentElement.classList.add("is-native");
+  }
+</script>
 <script type="text/babel">
 const {useState,useMemo,useEffect,useLayoutEffect,useRef}=React;
 
@@ -189,6 +210,104 @@ const SUPABASE_KEY="sb_publishable_MyKonA4E5WMFUh8BnJ_jWg_t7_Ty43o";
 const supabase=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY,{
   auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}
 });
+
+/* Haptic feedback helpers. Native iOS gets real Taptic Engine pulses via the Capacitor
+   Haptics plugin; web preview silently no-ops. Three intensity levels — match iOS HIG:
+     - tapLight()  → "selection changed" (chip taps, toggle, list row tap, slider tick)
+     - tapMedium() → "small action confirmed" (button press, navigation)
+     - tapHeavy()  → "important success/failure" (rating saved, account created)
+   Always fire-and-forget so haptic errors never block UI. */
+const _haptics={
+  light(){try{const H=window.Capacitor?.Plugins?.Haptics;H&&H.impact&&H.impact({style:"LIGHT"});}catch{}},
+  medium(){try{const H=window.Capacitor?.Plugins?.Haptics;H&&H.impact&&H.impact({style:"MEDIUM"});}catch{}},
+  heavy(){try{const H=window.Capacitor?.Plugins?.Haptics;H&&H.impact&&H.impact({style:"HEAVY"});}catch{}},
+  selection(){try{const H=window.Capacitor?.Plugins?.Haptics;H&&H.selectionStart&&H.selectionStart();}catch{}},
+  success(){try{const H=window.Capacitor?.Plugins?.Haptics;H&&H.notification&&H.notification({type:"SUCCESS"});}catch{}},
+};
+function tapLight(){_haptics.light();}
+function tapMedium(){_haptics.medium();}
+function tapHeavy(){_haptics.heavy();}
+function tapSelection(){_haptics.selection();}
+function tapSuccess(){_haptics.success();}
+
+/* Global tap haptic — every element with className containing "pressable" gets a light
+   tap on touchstart. This catches all the existing buttons we styled with the .pressable
+   class without having to touch each one. Native-only — web preview no-ops. */
+if(typeof document!=="undefined"){
+  document.addEventListener("touchstart",(e)=>{
+    const t=e.target;
+    if(!t||!t.closest)return;
+    const el=t.closest(".pressable, button");
+    if(el&&!el.disabled){
+      _haptics.light();
+    }
+  },{passive:true,capture:true});
+}
+
+/* Capacitor platform detection. When running inside the iOS app, window.Capacitor
+   is injected by the native bridge. In the web preview it's undefined and we fall
+   back to plain web OAuth. */
+const IS_NATIVE=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
+const APP_URL_SCHEME="com.declanobryan.puregolfjournal";
+const NATIVE_OAUTH_REDIRECT=APP_URL_SCHEME+"://callback";
+
+/* Native OAuth flow for iOS (and Android later). Web OAuth flow doesn't work inside
+   the Capacitor WebView because Supabase's redirect goes back to a URL the WebView
+   can't navigate to. Instead:
+     1. Ask Supabase for the OAuth URL but don't navigate (skipBrowserRedirect:true)
+     2. Open the URL in the in-app Browser plugin (SFSafariViewController)
+     3. Listen for the deep link return — iOS recognizes our URL scheme and fires appUrlOpen
+     4. Parse tokens from the URL fragment, hand to supabase.auth.setSession
+     5. Close the in-app browser
+   The user never leaves the Pure app. */
+async function nativeOAuth(provider){
+  const{data,error}=await supabase.auth.signInWithOAuth({
+    provider,
+    options:{redirectTo:NATIVE_OAUTH_REDIRECT,skipBrowserRedirect:true}
+  });
+  if(error)throw error;
+  if(!data?.url)throw new Error("Supabase didn't return an OAuth URL");
+  const Browser=window.Capacitor.Plugins.Browser;
+  const App=window.Capacitor.Plugins.App;
+  /* Promise resolves when the deep link comes back with tokens (or rejects on cancel) */
+  return new Promise(async(resolve,reject)=>{
+    let listenerHandle=null;
+    let browserCloseHandle=null;
+    const cleanup=async()=>{
+      try{listenerHandle&&listenerHandle.remove&&await listenerHandle.remove();}catch{}
+      try{browserCloseHandle&&browserCloseHandle.remove&&await browserCloseHandle.remove();}catch{}
+      try{await Browser.close();}catch{}
+    };
+    listenerHandle=await App.addListener("appUrlOpen",async(event)=>{
+      if(!event?.url||!event.url.startsWith(APP_URL_SCHEME+"://"))return;
+      try{
+        const u=new URL(event.url);
+        /* Tokens come back in the hash fragment (#access_token=...&refresh_token=...) */
+        const hashStr=u.hash.startsWith("#")?u.hash.slice(1):u.hash;
+        const params=new URLSearchParams(hashStr||u.search);
+        const access_token=params.get("access_token");
+        const refresh_token=params.get("refresh_token");
+        const errParam=params.get("error_description")||params.get("error");
+        await cleanup();
+        if(errParam){reject(new Error(errParam));return;}
+        if(!access_token||!refresh_token){reject(new Error("OAuth callback missing tokens."));return;}
+        const{error:setErr}=await supabase.auth.setSession({access_token,refresh_token});
+        if(setErr){reject(setErr);return;}
+        resolve(true);
+      }catch(e){await cleanup();reject(e);}
+    });
+    /* If the user closes the in-app browser without completing auth, treat as cancel */
+    browserCloseHandle=await Browser.addListener("browserFinished",async()=>{
+      /* Small delay so a successful appUrlOpen has a chance to fire first */
+      setTimeout(async()=>{await cleanup();reject(new Error("Sign-in cancelled."));},250);
+    });
+    try{
+      await Browser.open({url:data.url,presentationStyle:"popover"});
+    }catch(e){
+      await cleanup();reject(e);
+    }
+  });
+}
 
 /* Module-level write helpers — usable from any component without prop-drilling.
    Each grabs the current authenticated user via the Supabase session and
@@ -2540,7 +2659,13 @@ function BaselineRatingModal({course,targetSubName,onSave,onClose,friends,baseli
       </div>
       <input className="big-slider" type="range" min="1" max="10" step="0.1" value={slider!=null?slider:5.5}
         disabled={!pick}
-        onChange={e=>setSlider(parseFloat(e.target.value))}/>
+        onChange={e=>{
+          const v=parseFloat(e.target.value);
+          /* Subtle tick haptic at every 0.5 increment so the dial feels physical without
+             firing on every micro-pixel of slider movement (which would feel buzzy). */
+          if(slider==null||Math.floor(slider*2)!==Math.floor(v*2))tapLight();
+          setSlider(v);
+        }}/>
       <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"var(--c-muted)",marginTop:2,fontWeight:600}}>
         <span>1.0</span><span>5.5</span><span>10.0</span>
       </div>
@@ -2573,7 +2698,10 @@ function HeadToHeadModal({course,targetSubName,ratings,onComplete,onClose,friend
   const current=getNext(candidates,results,course);const roundNum=results.length+1;
   /* Show dynamic target round cap for progress display */
   const displayTarget=Math.max(MIN_ROUNDS,results.length+(shouldContinue(candidates,results)?1:0));
-  const choose=choice=>{if(busy||!current)return;setChosen(choice);setBusy(true);
+  const choose=choice=>{if(busy||!current)return;
+    /* Medium tap on every comparison choice — feels like flipping a card */
+    tapMedium();
+    setChosen(choice);setBusy(true);
     setTimeout(()=>{const next=[...results,{...current,result:choice}];setResults(next);setChosen(null);setBusy(false);
       const keepGoing=shouldContinue(candidates,next);
       if(!keepGoing){
@@ -3065,13 +3193,27 @@ function CourseDetail({course,statuses,ratings,friends,profile,onBack,onSetStatu
 /* ═══════════════════════════════════════════════════════════
    DISCOVER TAB
 ═══════════════════════════════════════════════════════════ */
-const DISCOVER_SCROLL={pos:0,returning:false};
+/* Scroll position + filter state persisted across navigation. When the user
+   filters by a tag/state/country, opens a course, then taps back, they expect
+   the same view they left — not a reset Discover. Module-level cache survives
+   DiscoverTab unmount/remount as long as the user doesn't switch tabs. */
+const DISCOVER_SCROLL={pos:0,returning:false,q:"",tf:null,pf:null,sf:null,cf:null};
 function DiscoverTab({statuses,ratings,onSelect,focusSearch,onFocusConsumed,scrollToTopNonce,profile}){
   const isReturning=DISCOVER_SCROLL.returning;
   useEffect(()=>{DISCOVER_SCROLL.returning=false;},[]);
-  const[q,setQ]=useState("");const[tf,setTf]=useState(null);const[pf,setPf]=useState(null); // prestige filter
-  const[sf,setSf]=useState(null); // state filter
-  const[cf,setCf]=useState(null); // country filter
+  /* Initialize from the module-level cache so a back-from-detail navigation
+     restores whatever filters the user had selected. Each setter mirrors back
+     to the cache so the next mount sees the latest values. */
+  const[q,setQRaw]=useState(DISCOVER_SCROLL.q||"");
+  const[tf,setTfRaw]=useState(DISCOVER_SCROLL.tf||null); // terrain filter
+  const[pf,setPfRaw]=useState(DISCOVER_SCROLL.pf||null); // prestige filter
+  const[sf,setSfRaw]=useState(DISCOVER_SCROLL.sf||null); // state filter
+  const[cf,setCfRaw]=useState(DISCOVER_SCROLL.cf||null); // country filter
+  const setQ=(v)=>{DISCOVER_SCROLL.q=typeof v==="function"?v(q):v;setQRaw(DISCOVER_SCROLL.q);};
+  const setTf=(v)=>{DISCOVER_SCROLL.tf=typeof v==="function"?v(tf):v;setTfRaw(DISCOVER_SCROLL.tf);};
+  const setPf=(v)=>{DISCOVER_SCROLL.pf=typeof v==="function"?v(pf):v;setPfRaw(DISCOVER_SCROLL.pf);};
+  const setSf=(v)=>{DISCOVER_SCROLL.sf=typeof v==="function"?v(sf):v;setSfRaw(DISCOVER_SCROLL.sf);};
+  const setCf=(v)=>{DISCOVER_SCROLL.cf=typeof v==="function"?v(cf):v;setCfRaw(DISCOVER_SCROLL.cf);};
   const[stateOpen,setStateOpen]=useState(false);
   const[countryOpen,setCountryOpen]=useState(false);
   const scrollRef=useRef(null);const searchRef=useRef(null);
@@ -3112,7 +3254,16 @@ function DiscoverTab({statuses,ratings,onSelect,focusSearch,onFocusConsumed,scro
   useLayoutEffect(()=>{if(scrollRef.current)scrollRef.current.scrollTop=DISCOVER_SCROLL.pos;},[]);
   useEffect(()=>{const el=scrollRef.current;if(!el)return;const onScroll=()=>{DISCOVER_SCROLL.pos=el.scrollTop;};el.addEventListener("scroll",onScroll,{passive:true});return()=>el.removeEventListener("scroll",onScroll);},[]);
   const prevNonceRef=useRef(scrollToTopNonce);
-  useEffect(()=>{if(scrollToTopNonce!==prevNonceRef.current&&scrollRef.current){scrollRef.current.scrollTo({top:0,behavior:"smooth"});DISCOVER_SCROLL.pos=0;}prevNonceRef.current=scrollToTopNonce;},[scrollToTopNonce]);
+  /* Tab re-tap = scroll to top AND clear filters (treat as "fresh start").
+     Detail-back returns won't trigger this because handleSelect doesn't bump the nonce. */
+  useEffect(()=>{
+    if(scrollToTopNonce!==prevNonceRef.current&&scrollRef.current){
+      scrollRef.current.scrollTo({top:0,behavior:"smooth"});
+      DISCOVER_SCROLL.pos=0;
+      setQ("");setTf(null);setPf(null);setSf(null);setCf(null);
+    }
+    prevNonceRef.current=scrollToTopNonce;
+  },[scrollToTopNonce]);
   /* Auto-focus the search input when navigated here from the Clubhouse Rate button */
   useEffect(()=>{
     if(focusSearch&&searchRef.current){
@@ -3856,6 +4007,19 @@ function LoginScreen(){
   const[error,setError]=useState(null);
   const[busy,setBusy]=useState(false);
   const[notice,setNotice]=useState(null);
+  /* If the user tapped "Continue with Apple/Google" but bailed out (failed sign-in,
+     hit cancel, etc.) and came back to the app, the OAuth promise never resolves so
+     setBusy(false) never fires — leaving the buttons stuck in disabled/grayed state.
+     Reset busy whenever the app regains foreground/visibility. */
+  useEffect(()=>{
+    const reset=()=>{if(document.visibilityState==="visible")setBusy(false);};
+    document.addEventListener("visibilitychange",reset);
+    window.addEventListener("focus",reset);
+    return()=>{
+      document.removeEventListener("visibilitychange",reset);
+      window.removeEventListener("focus",reset);
+    };
+  },[]);
   const submit=async()=>{
     setError(null);setNotice(null);
     if(!email.trim()||!password){setError("Email and password are required.");return;}
@@ -3878,31 +4042,36 @@ function LoginScreen(){
     }catch(e){setError(e.message||"Something went wrong.");}
     setBusy(false);
   };
-  /* Sign in with Apple (web OAuth flow). Redirects to Apple, then back to Supabase callback,
-     then back to our app with a session. onAuthStateChange picks it up automatically.
-     Native iOS will use the @capacitor-community/apple-sign-in plugin in Phase 2. */
+  /* OAuth dispatch — uses the native Capacitor flow (in-app browser + deep link)
+     when running inside the iOS app, falls back to plain web OAuth in browser preview.
+     The native path resolves on success vs the web path which navigates away. */
   const signInWithApple=async()=>{
     setError(null);setNotice(null);setBusy(true);
     try{
-      const{error}=await supabase.auth.signInWithOAuth({
-        provider:"apple",
-        options:{redirectTo:window.location.origin}
-      });
-      if(error)throw error;
-      /* On success the browser navigates away; nothing else to do here */
+      if(IS_NATIVE){
+        await nativeOAuth("apple");
+        /* onAuthStateChange will fire and swap App into authenticated path */
+      }else{
+        const{error}=await supabase.auth.signInWithOAuth({
+          provider:"apple",
+          options:{redirectTo:window.location.origin}
+        });
+        if(error)throw error;
+      }
     }catch(e){setError(e.message||"Apple sign-in failed.");setBusy(false);}
   };
-  /* Sign in with Google (web OAuth flow). Same pattern as Apple — Supabase handles
-     the token exchange and onAuthStateChange picks up the session on return.
-     A native iOS plugin can be added in Phase 2 if we want a native sheet vs WebView. */
   const signInWithGoogle=async()=>{
     setError(null);setNotice(null);setBusy(true);
     try{
-      const{error}=await supabase.auth.signInWithOAuth({
-        provider:"google",
-        options:{redirectTo:window.location.origin}
-      });
-      if(error)throw error;
+      if(IS_NATIVE){
+        await nativeOAuth("google");
+      }else{
+        const{error}=await supabase.auth.signInWithOAuth({
+          provider:"google",
+          options:{redirectTo:window.location.origin}
+        });
+        if(error)throw error;
+      }
     }catch(e){setError(e.message||"Google sign-in failed.");setBusy(false);}
   };
   return(<div style={{width:"100%",height:"100vh",display:"flex",flexDirection:"column",background:"var(--c-bg)",fontFamily:"var(--font-body)"}}>
@@ -4226,7 +4395,11 @@ function Onboarding({onComplete,inviteUser,onRequestCourse,existingProfile}){
         </div>
         <div style={{fontSize:14,fontWeight:600,color:scoreColor(homeRating)}}>{scoreMoji(homeRating)} {scoreLabel(homeRating)}</div>
         <div style={{marginTop:20,padding:"0 8px"}}>
-          <input type="range" min="1" max="10" step="0.1" value={homeRating} onChange={e=>setHomeRating(Number(e.target.value))}
+          <input type="range" min="1" max="10" step="0.1" value={homeRating} onChange={e=>{
+            const v=Number(e.target.value);
+            if(Math.floor(homeRating*2)!==Math.floor(v*2))tapLight();
+            setHomeRating(v);
+          }}
             style={{width:"100%",accentColor:"var(--c-green)",height:6,cursor:"pointer"}}/>
           <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
             <span style={{fontSize:10,color:"var(--c-muted)"}}>1.0</span>
@@ -4368,7 +4541,12 @@ function CreditsView({onBack}){
       <div style={{fontSize:16,fontWeight:500,fontFamily:"var(--font-display)"}}>Credits & Attributions</div>
     </div>
     <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"20px 18px calc(env(safe-area-inset-bottom, 0px) + 32px)"}}>
-      <p style={{fontSize:13,color:"var(--c-text)",lineHeight:1.6,marginBottom:18}}>Pure Golf Journal uses course photography sourced from open-license providers. We are grateful to the photographers and contributors who make their work freely available.</p>
+      <p style={{fontSize:13,color:"var(--c-text)",lineHeight:1.6,marginBottom:14}}>Pure Golf Journal uses course photography sourced from open-license providers. We are grateful to the photographers and contributors who make their work freely available.</p>
+
+      <div style={{marginBottom:22,padding:"12px 14px",background:"var(--c-green-dim)",border:"1px solid var(--c-green-border)",borderRadius:12}}>
+        <div style={{fontWeight:600,fontSize:13,marginBottom:4,color:"var(--c-green)"}}>About course photos</div>
+        <div style={{fontSize:12,color:"var(--c-text)",lineHeight:1.55}}>Some courses — especially private clubs and lesser-known tracks — don't have publicly licensed photos available. In those cases we use a regional landscape photo or, rarely, no photo at all. As Pure grows, your uploaded photos will help fill these gaps for the whole community.</div>
+      </div>
 
       <div style={{marginBottom:24,padding:"12px 14px",background:"var(--c-card)",border:"1px solid var(--c-border)",borderRadius:12}}>
         <div style={{fontWeight:600,fontSize:13,marginBottom:4}}>User-uploaded photos</div>
@@ -6241,6 +6419,9 @@ function App(){
   };
   const saveRating=(id,r,opts={})=>{
     const isRefine=!!opts.refine;
+    /* Strong success haptic the moment a rating is committed — the most important
+       moment in the app. iOS HIG calls this a "notification success" pattern. */
+    tapSuccess();
     /* Unit count BEFORE this save decides if it's among the first 5 */
     const prevUnitsCount=getRatedUnits(ratings).length;
     const isEarly=!isRefine&&(prevUnitsCount===3||prevUnitsCount===4);
