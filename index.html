@@ -541,7 +541,7 @@ async function dbWriteImportedRound(round){
   if(error){_dbFail("imported_rounds insert",error);return false;}
   return true;
 }
-async function dbWriteUserTee(courseId,tee){
+async function dbWriteUserTee(courseId,tee,subName){
   const uid=await _uid();if(!uid)return false;
   /* Server-side defense: ensure rating + slope are within plausible bounds before
      hitting the DB. The schema doesn't enforce these (Postgres NUMERIC accepts anything)
@@ -552,11 +552,18 @@ async function dbWriteUserTee(courseId,tee){
       _dbFail("user_tees validation",{message:`Tee values out of range (rating ${r}, slope ${s}). Rating must be 55–85, slope 55–155.`});
       return false;
     }
-  const{error}=await supabase.from("user_tees").upsert({
-    user_id:uid,course_id:Number(courseId),
-    tee_name:tee.name||tee.teeName,
-    course_rating:r,slope:s,
-  },{onConflict:"user_id,course_id,tee_name"});
+  /* Build 3: sub_name is now part of the uniqueness, but partial unique
+     indexes don't play well with PostgREST upsert. Delete-then-insert is
+     idempotent and avoids onConflict edge cases with NULL sub_name. */
+  const teeName=tee.name||tee.teeName;
+  let q=supabase.from("user_tees").delete().eq("user_id",uid).eq("course_id",Number(courseId)).eq("tee_name",teeName);
+  if(subName)q=q.eq("sub_name",subName);
+  else q=q.is("sub_name",null);
+  await q;
+  const{error}=await supabase.from("user_tees").insert({
+    user_id:uid,course_id:Number(courseId),sub_name:subName||null,
+    tee_name:teeName,course_rating:r,slope:s,
+  });
   if(error){_dbFail("user_tees upsert",error);return false;}
   return true;
 }
@@ -2652,7 +2659,14 @@ function TeePicker({course,subName,userTees,value,onChange,compact}){
     return sub?.tees||null;
   })();
   const courseTees=subTees||course?.tees||[];
-  const savedTees=(course?.id&&userTees&&userTees[course.id])||[];
+  /* Build 3: scoped per sub-course. Falls back to main-course saved tees
+     for backward compat with entries saved before sub_name was introduced. */
+  const savedTees=(()=>{
+    if(!course?.id||!userTees)return[];
+    const subKey=subName?course.id+":"+subName:null;
+    if(subKey&&userTees[subKey])return userTees[subKey];
+    return userTees[course.id]||[];
+  })();
   /* De-duplicate: if a saved tee has the same name as a course tee, prefer the course version */
   const seenNames=new Set(courseTees.map(t=>(t.name||"").toLowerCase()));
   const mergedSaved=savedTees.filter(t=>!seenNames.has((t.name||"").toLowerCase()));
@@ -3797,7 +3811,7 @@ function HeadToHeadModal({course,targetSubName,ratings,onComplete,onClose,friend
 /* ═══════════════════════════════════════════════════════════
    COURSE DETAIL
 ═══════════════════════════════════════════════════════════ */
-function CourseDetail({course,statuses,ratings,friends,profile,onBack,onSetStatus,onSaveRating,coursePreview,onSetCoursePreview,onClearCoursePreview,onQuickLog,onViewFriend}){
+function CourseDetail({course,statuses,ratings,friends,profile,onBack,onSetStatus,onSaveRating,coursePreview,onSetCoursePreview,onClearCoursePreview,onQuickLog,onViewFriend,aggregate}){
   const[heroLoaded,setHeroLoaded]=useState(!(coursePreview||course.img));
   const[shareCard,setShareCard]=useState(null); // {score,label,color,subName} when open
   useEffect(()=>{
@@ -3986,14 +4000,22 @@ function CourseDetail({course,statuses,ratings,friends,profile,onBack,onSetStatu
           const offset=((hash%11)-5)/10; // -0.5..+0.5
           friendAvg=Math.round(Math.max(1,Math.min(10,friendAvg+offset))*10)/10;
         }
-        /* Average RATING across all users (friends + you) — only shown if someone other than you has rated */
+        /* Build 3: prefer the GLOBAL aggregate (all Pure users) when available
+           via the courseAggregates table. Falls back to local friends+self
+           computation for offline / pre-trigger-population cases. */
         const allRatings=[];
         const myR=ratings[course.id];
         const myRating=activeSub?(myR?.allSubs?.[activeSub.name]?.overall||myR?.overall):myR?.overall;
         if(myRating!=null)allRatings.push(myRating);
         friends.forEach(f=>{const fr=f.ratings?.[course.id];if(fr?.overall!=null)allRatings.push(fr.overall);});
         const hasOthers=friendRatings.length>0;
-        let avgRatingAll=hasOthers&&allRatings.length?allRatings.reduce((a,b)=>a+b,0)/allRatings.length:null;
+        let avgRatingAll=null;
+        let avgRatingCount=0;
+        if(aggregate?.avg!=null&&aggregate.count>0){
+          avgRatingAll=aggregate.avg;avgRatingCount=aggregate.count;
+        }else if(hasOthers&&allRatings.length){
+          avgRatingAll=allRatings.reduce((a,b)=>a+b,0)/allRatings.length;avgRatingCount=allRatings.length;
+        }
         /* Per sub-course variance for avg rating across users */
         if(avgRatingAll!==null&&activeSub){
           let hash=0;for(let i=0;i<activeSub.name.length;i++)hash=((hash<<5)-hash+activeSub.name.charCodeAt(i))|0;
@@ -4012,7 +4034,7 @@ function CourseDetail({course,statuses,ratings,friends,profile,onBack,onSetStatu
             {avgRatingAll!==null&&<div style={{flex:1,background:"var(--c-card)",border:"1px solid var(--c-border)",borderRadius:12,padding:"14px 12px",textAlign:"center"}}>
               <div style={{fontSize:22,fontWeight:300,fontFamily:"var(--font-display)",color:scoreColor(avgRatingAll),letterSpacing:-0.5}}>{avgRatingAll.toFixed(1)}</div>
               <div style={{fontSize:9,color:"var(--c-muted)",marginTop:4,fontWeight:600,letterSpacing:0.5,textTransform:"uppercase"}}>Avg Rating</div>
-              <div style={{fontSize:10,color:"var(--c-muted)",marginTop:6}}>{allRatings.length} {allRatings.length===1?"player":"players"}</div>
+              <div style={{fontSize:10,color:"var(--c-muted)",marginTop:6}}>{avgRatingCount} {avgRatingCount===1?"player":"players"}</div>
             </div>}
           </div>);
       })()}
@@ -7378,7 +7400,14 @@ function App(){
         /* Imported rounds → onto profile.ghinRounds */
         const importedRounds=irData.map(row=>({score:row.score,holes:row.holes,courseRating:row.course_rating,slope:row.slope,teeName:row.tee_name,subName:row.sub_name,date:row.date,courseName:row.course_name,courseId:row.course_id,source:row.source,photos:row.photos||[],note:row.note||null,playedWith:row.played_with||[]}));
         const userTeesMap={};
-        utData.forEach(row=>{const t={name:row.tee_name,rating:Number(row.course_rating),slope:row.slope};userTeesMap[row.course_id]=[...(userTeesMap[row.course_id]||[]),t];});
+        /* Build 3: keys are now composite (course_id + ":" + sub_name) for
+           sub-course rows, plain course_id for main-course rows. TeePicker
+           reads from both keys with main-course fallback. */
+        utData.forEach(row=>{
+          const t={name:row.tee_name,rating:Number(row.course_rating),slope:row.slope};
+          const key=row.sub_name?row.course_id+":"+row.sub_name:String(row.course_id);
+          userTeesMap[key]=[...(userTeesMap[key]||[]),t];
+        });
         setProfile(p=>p?{...p,ghinRounds:importedRounds,userTees:userTeesMap}:p);
         const reactionsMap={};
         rxData.forEach(row=>{const key=`${row.target_user_id}-${row.course_id}`;const entry=reactionsMap[key]||{emojis:[],comments:[]};const display=row.emoji||row.text;if(display)entry.comments=[...entry.comments,{id:row.id,text:display,emoji:row.emoji||null,reactorId:row.user_id,date:row.created_at}];reactionsMap[key]=entry;});
@@ -7390,6 +7419,16 @@ function App(){
         setNotifications(noteRows);
         /* Mark secondary done so handicap-toast effect can stop suppressing itself. */
         setSecondaryHydrated(true);
+        /* Build 3: load global course aggregates so CourseDetail can show
+           "Avg Rating" across all users, not just friends+self. Small payload
+           (one row per course that has any ratings) so a single un-paginated
+           fetch is fine for v1. */
+        supabase.from("course_aggregates").select("course_id,avg_rating,rating_count").then(({data,error})=>{
+          if(cancelled||error)return;
+          const map={};
+          (data||[]).forEach(row=>{map[row.course_id]={avg:Number(row.avg_rating),count:row.rating_count};});
+          setCourseAggregates(map);
+        });
         /* Tertiary wave: eager-load friend ratings + statuses so Friends list,
            Course detail Friends tab, Top 5 friend overlap, and bucket-list signals
            all populate without per-friend on-demand loads. RLS auto-filters by
@@ -7797,6 +7836,10 @@ function App(){
      Both emoji presses and text comments are stored uniformly as `comments[]` entries — emoji rows just
      have an `emoji` field set so we can style them differently if needed. */
   const[reactions,setReactions]=useState({});
+  /* Build 3: per-course aggregate ratings keyed by courseId.
+     Shape: {[courseId]: {avg: 8.4, count: 12}}. Maintained server-side by
+     trigger on ratings INSERT/UPDATE/DELETE. */
+  const[courseAggregates,setCourseAggregates]=useState({});
   /* Activity feed — populated from dbLoadFolloweeActivity on hydration, kept fresh by the realtime
      subscription below. Shape: [{friend, course, rating, date}, ...] sorted newest first. */
   const[activity,setActivity]=useState([]);
@@ -7986,11 +8029,13 @@ function App(){
     const next={...profile,ghinRounds:[...(profile?.ghinRounds||[]),...rounds]};
     if(courseId&&tee?.source==="manual"&&tee.teeName&&tee.rating&&tee.slope){
       const map={...(profile?.userTees||{})};
-      const existing=map[courseId]||[];
+      /* Build 3: scope per sub-course when applicable. */
+      const teeKey=batchSetup.subName?courseId+":"+batchSetup.subName:String(courseId);
+      const existing=map[teeKey]||[];
       const dup=existing.some(t=>(t.name||"").toLowerCase()===tee.teeName.toLowerCase());
-      if(!dup)map[courseId]=[...existing,{name:tee.teeName,rating:Number(tee.rating),slope:Number(tee.slope)}];
+      if(!dup)map[teeKey]=[...existing,{name:tee.teeName,rating:Number(tee.rating),slope:Number(tee.slope)}];
       next.userTees=map;
-      dbWriteUserTee(courseId,{name:tee.teeName,rating:tee.rating,slope:tee.slope});
+      dbWriteUserTee(courseId,{name:tee.teeName,rating:tee.rating,slope:tee.slope},batchSetup.subName||null);
     }
     setProfile(next);
     rounds.forEach(r=>dbWriteImportedRound(r));
@@ -8077,11 +8122,12 @@ function App(){
          Skip for custom courses — userTees is keyed by courseId so we have nowhere to put it. */
       if(courseId&&tee&&tee.source==="manual"&&tee.teeName&&tee.rating&&tee.slope){
         const map={...(p?.userTees||{})};
-        const existing=map[courseId]||[];
+        const teeKey=subName?courseId+":"+subName:String(courseId);
+        const existing=map[teeKey]||[];
         const dup=existing.some(t=>(t.name||"").toLowerCase()===tee.teeName.toLowerCase());
-        if(!dup)map[courseId]=[...existing,{name:tee.teeName,rating:Number(tee.rating),slope:Number(tee.slope)}];
+        if(!dup)map[teeKey]=[...existing,{name:tee.teeName,rating:Number(tee.rating),slope:Number(tee.slope)}];
         next.userTees=map;
-        dbWriteUserTee(courseId,{name:tee.teeName,rating:tee.rating,slope:tee.slope});
+        dbWriteUserTee(courseId,{name:tee.teeName,rating:tee.rating,slope:tee.slope},subName||null);
       }
       return next;
     });
@@ -8300,12 +8346,13 @@ function App(){
     if(t&&t.source==="manual"&&t.teeName&&t.rating&&t.slope){
       setProfile(p=>{
         const map={...(p?.userTees||{})};
-        const existing=map[id]||[];
+        const teeKey=r.subcourse?id+":"+r.subcourse:String(id);
+        const existing=map[teeKey]||[];
         const dup=existing.some(x=>(x.name||"").toLowerCase()===t.teeName.toLowerCase());
-        if(!dup)map[id]=[...existing,{name:t.teeName,rating:Number(t.rating),slope:Number(t.slope)}];
+        if(!dup)map[teeKey]=[...existing,{name:t.teeName,rating:Number(t.rating),slope:Number(t.slope)}];
         return{...p,userTees:map};
       });
-      dbWriteUserTee(id,{name:t.teeName,rating:t.rating,slope:t.slope});
+      dbWriteUserTee(id,{name:t.teeName,rating:t.rating,slope:t.slope},r.subcourse||null);
     }
     /* Track early refs (first 5 total ratings) for later refinement */
     if(!isRefine&&prevUnitsCount<5){
@@ -8558,7 +8605,7 @@ function App(){
           const prev=navStack[navStack.length-1];
           if(prev){setNavStack(s=>s.slice(0,-1));setCourse(null);if(prev.type==="friend")setViewFriend(prev.friend);else if(prev.type==="course")setCourse(prev.course);}
           else setCourse(null);
-        }} onSetStatus={setStatus} onSaveRating={saveRating} coursePreview={coursePreviews[course.id]} onSetCoursePreview={url=>setCoursePreviews(p=>({...p,[course.id]:url}))} onClearCoursePreview={()=>setCoursePreviews(p=>{const n={...p};delete n[course.id];return n;})} onQuickLog={()=>setQuickLog({course})} onViewFriend={f=>{setNavStack(s=>[...s,{type:"course",course}]);setCourse(null);setViewFriend(f);}}/>
+        }} onSetStatus={setStatus} onSaveRating={saveRating} coursePreview={coursePreviews[course.id]} onSetCoursePreview={url=>setCoursePreviews(p=>({...p,[course.id]:url}))} onClearCoursePreview={()=>setCoursePreviews(p=>{const n={...p};delete n[course.id];return n;})} onQuickLog={()=>setQuickLog({course})} onViewFriend={f=>{setNavStack(s=>[...s,{type:"course",course}]);setCourse(null);setViewFriend(f);}} aggregate={courseAggregates[course.id]}/>
         :viewFriend?<FriendProfile friend={viewFriend} onBack={()=>{
           const prev=navStack[navStack.length-1];
           if(prev){setNavStack(s=>s.slice(0,-1));setViewFriend(null);if(prev.type==="friend")setViewFriend(prev.friend);else if(prev.type==="course")setCourse(prev.course);}
