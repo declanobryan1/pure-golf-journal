@@ -655,13 +655,14 @@ function _userToFriend(u){
     profilePhotoPos:u.profile_photo_pos||null,
     /* Initials derived from name; no static color (Avatar falls back to Pure-green) */
     initials:(u.name||u.username||"").split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase(),
-    ratings:{},played:[],want:[],
+    homeCourseId:u.home_course_id||null,
+    ratings:{},played:[],want:[],wantSubs:{},
   };
 }
 async function dbLoadFollowing(uid){
   const{data,error}=await supabase
     .from("friendships")
-    .select("followee_id, followee:users!followee_id(id,username,name,profile_photo_url,profile_photo_pos)")
+    .select("followee_id, followee:users!followee_id(id,username,name,profile_photo_url,profile_photo_pos,home_course_id)")
     .eq("follower_id",uid);
   if(error){console.warn("friendships(following) fetch failed:",error.message);return{rows:[],_error:error.message};}
   return{rows:(data||[]).map(r=>_userToFriend(r.followee)).filter(Boolean),_error:null};
@@ -669,10 +670,43 @@ async function dbLoadFollowing(uid){
 async function dbLoadFollowers(uid){
   const{data,error}=await supabase
     .from("friendships")
-    .select("follower_id, follower:users!follower_id(id,username,name,profile_photo_url,profile_photo_pos)")
+    .select("follower_id, follower:users!follower_id(id,username,name,profile_photo_url,profile_photo_pos,home_course_id)")
     .eq("followee_id",uid);
   if(error){console.warn("friendships(followers) fetch failed:",error.message);return{rows:[],_error:error.message};}
   return{rows:(data||[]).map(r=>_userToFriend(r.follower)).filter(Boolean),_error:null};
+}
+/* Eager-load all followees' ratings + statuses in two batched queries. RLS gates
+   what we can see automatically (only ratings/statuses from people we follow that
+   they haven't hidden). Returns {ratingsByUser, statusesByUser}. */
+async function dbLoadAllFriendsData(friendIds){
+  if(!friendIds||!friendIds.length)return{ratingsByUser:{},statusesByUser:{},_error:null};
+  const[r,s]=await Promise.all([
+    supabase.from("ratings").select("*").in("user_id",friendIds),
+    supabase.from("statuses").select("user_id,course_id,play,want_subs").in("user_id",friendIds),
+  ]);
+  const ratingsByUser={};
+  if(!r.error){
+    (r.data||[]).forEach(row=>{
+      const map=ratingsByUser[row.user_id]||(ratingsByUser[row.user_id]={});
+      const rec={overall:Number(row.overall),review:row.review||"",date:row.date||null,shotScore:row.shot_score,personalBest:row.personal_best,isHomeCourse:!!row.is_home_course,isEarly:!!row.is_early,firstImpression:!!row.first_impression,impressionLabel:row.impression_label,teeName:row.tee_name,courseRating:row.course_rating,slope:row.slope,tee:row.tee,playedWith:row.played_with||[],photos:row.photos||[]};
+      if(row.sub_name){
+        const ex=map[row.course_id]||{allSubs:{}};
+        ex.allSubs={...(ex.allSubs||{}),[row.sub_name]:rec};
+        const subVals=Object.values(ex.allSubs);
+        ex.overall=Math.round((subVals.reduce((a,x)=>a+x.overall,0)/subVals.length)*10)/10;
+        map[row.course_id]=ex;
+      }else map[row.course_id]={...rec,...(map[row.course_id]?.allSubs?{allSubs:map[row.course_id].allSubs}:{})};
+    });
+  }
+  const statusesByUser={};
+  if(!s.error){
+    (s.data||[]).forEach(row=>{
+      const map=statusesByUser[row.user_id]||(statusesByUser[row.user_id]={played:[],want:[],wantSubs:{}});
+      if(row.play==="played")map.played.push(row.course_id);
+      else if(row.play==="want"){map.want.push(row.course_id);if(row.want_subs?.length)map.wantSubs[row.course_id]=row.want_subs;}
+    });
+  }
+  return{ratingsByUser,statusesByUser,_error:r.error?.message||s.error?.message||null};
 }
 async function dbFollow(targetId){
   const uid=await _uid();if(!uid||!targetId||uid===targetId)return false;
@@ -7136,6 +7170,22 @@ function App(){
         setNotifications(noteRows);
         /* Mark secondary done so handicap-toast effect can stop suppressing itself. */
         setSecondaryHydrated(true);
+        /* Tertiary wave: eager-load friend ratings + statuses so Friends list,
+           Course detail Friends tab, Top 5 friend overlap, and bucket-list signals
+           all populate without per-friend on-demand loads. RLS auto-filters by
+           privacy + follow graph. Fail-soft: ignore errors, friends will fall back
+           to lazy-load via FriendProfile if they tap into one. */
+        const followeeIds=folRows.map(f=>f.id).filter(Boolean);
+        if(followeeIds.length){
+          dbLoadAllFriendsData(followeeIds).then(({ratingsByUser,statusesByUser})=>{
+            if(cancelled)return;
+            setFriends(prev=>prev.map(f=>{
+              const r=ratingsByUser[f.id]||{};
+              const s=statusesByUser[f.id]||{played:[],want:[],wantSubs:{}};
+              return{...f,ratings:r,played:s.played,want:s.want,wantSubs:s.wantSubs};
+            }));
+          }).catch(e=>console.warn("friend data eager-load failed:",e?.message||e));
+        }
       }).catch(e=>{console.warn("secondary hydrate failed:",e?.message||e);setSecondaryHydrated(true);});
       if(u.error)console.warn("users fetch failed:",u.error.message);
       if(rs.error)console.warn("ratings fetch failed:",rs.error.message);
@@ -7206,8 +7256,34 @@ function App(){
         statusesMap[row.course_id]={play:row.play,wantSubs:row.want_subs||[]};
       });
       setProfile(nextProfile);
-      setRatings(ratingsMap);
-      setStatuses(statusesMap);
+      /* Non-overwriting guard: if either query errored, DON'T wipe in-memory state.
+         The "data disappeared after sign-in" bug was caused by this exact code path —
+         a transient RLS/network race returned an error, ratingsMap stayed empty,
+         setRatings({}) wiped everything. Now we only overwrite on confirmed success. */
+      if(!rs.error)setRatings(ratingsMap);
+      else{
+        console.warn("[hydrate] ratings fetch failed, keeping cached state:",rs.error?.message);
+        /* Retry once with a short delay; if it fails again, surface a toast. */
+        setTimeout(async()=>{
+          if(cancelled)return;
+          const retry=await supabase.from("ratings").select("*").eq("user_id",uid);
+          if(cancelled||retry.error)return;
+          const retryMap={};
+          (retry.data||[]).forEach(row=>{
+            const r={overall:Number(row.overall),review:row.review||"",date:row.date||null,shotScore:row.shot_score,personalBest:row.personal_best,isHomeCourse:!!row.is_home_course,isEarly:!!row.is_early,firstImpression:!!row.first_impression,impressionLabel:row.impression_label,teeName:row.tee_name,courseRating:row.course_rating,slope:row.slope,tee:row.tee,playedWith:row.played_with||[],photos:row.photos||[],comparisons:row.comparisons||[],history:row.history||[]};
+            if(row.sub_name){
+              const ex=retryMap[row.course_id]||{allSubs:{}};
+              ex.allSubs={...(ex.allSubs||{}),[row.sub_name]:r};
+              const subVals=Object.values(ex.allSubs);
+              ex.overall=Math.round((subVals.reduce((s,x)=>s+x.overall,0)/subVals.length)*10)/10;
+              retryMap[row.course_id]=ex;
+            }else retryMap[row.course_id]={...r,...(retryMap[row.course_id]?.allSubs?{allSubs:retryMap[row.course_id].allSubs}:{})};
+          });
+          setRatings(retryMap);
+        },1500);
+      }
+      if(!sts.error)setStatuses(statusesMap);
+      else console.warn("[hydrate] statuses fetch failed, keeping cached state:",sts.error?.message);
       setHydrated(true);
     })();
     return()=>{cancelled=true;};
@@ -7355,6 +7431,9 @@ function App(){
            can fire synchronously inside register() — if listener attached after, we miss it. */
         listeners.push(await Push.addListener("registration",async tok=>{
           if(removed)return;
+          /* Stash the token globally so handleSignOut + handleResetAccount can
+             revoke it from device_tokens before tearing down the session. */
+          try{window.__purePushToken=tok?.value||null;}catch{}
           await dbRegisterDeviceToken(tok?.value,"ios");
         }));
         listeners.push(await Push.addListener("registrationError",err=>{
@@ -7788,6 +7867,16 @@ function App(){
   };
   /* Sign out — wipes the local session and falls back to LoginScreen on next render. */
   const handleSignOut=async()=>{
+    /* Clear in-session friend details cache so next signed-in user doesn't
+       inherit the previous user's RLS-scoped friend data. Window-scoped cache
+       persists across the React tree teardown until reload completes. */
+    try{delete window.__friendDetailsCache;}catch{}
+    /* Revoke this device's push token so the next user on this device doesn't
+       inherit the previous user's APNs subscription. Best-effort; ignore errors. */
+    try{
+      const tok=window.__purePushToken;
+      if(tok){await supabase.from("device_tokens").delete().eq("token",tok);}
+    }catch{}
     await supabase.auth.signOut();
     /* Force a full reload to clear all React state cleanly */
     window.location.reload();
@@ -7806,7 +7895,13 @@ function App(){
     const reallyOk=window.confirm("Are you sure? This can't be undone.");
     if(!reallyOk)return;
     /* Run all deletes in parallel, but inspect each result so we can abort the reload
-       if anything failed. Otherwise the user thinks data is gone when it isn't. */
+       if anything failed. Otherwise the user thinks data is gone when it isn't.
+       Also revoke this device's push token so future pushes don't go to the
+       just-reset account if the user later signs in as someone else. */
+    try{
+      const tok=window.__purePushToken;
+      if(tok)await supabase.from("device_tokens").delete().eq("token",tok);
+    }catch{}
     const results=await Promise.all([
       supabase.from("ratings").delete().eq("user_id",uid),
       supabase.from("imported_rounds").delete().eq("user_id",uid),
