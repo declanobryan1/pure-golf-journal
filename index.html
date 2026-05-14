@@ -535,6 +535,8 @@ async function dbWriteImportedRound(round){
     sub_name:round.subName||null,score:round.score,holes:round.holes||18,
     course_rating:round.courseRating||null,slope:round.slope||null,
     tee_name:round.teeName||null,source:round.source||"manual",date:round.date||null,
+    /* Build 3: persist photos, note, played_with too. Migration 006 adds these columns. */
+    photos:round.photos||[],note:round.note||null,played_with:round.playedWith||[],
   });
   if(error){_dbFail("imported_rounds insert",error);return false;}
   return true;
@@ -2745,18 +2747,47 @@ function ScoreInput({value,onChange}){
   </div>);
 }
 
+/* Build 3: compress photos before storing as data URLs. iPhone photos can be
+   8-12MB raw, which bloats Supabase rows + localStorage and breaks PostgREST's
+   default 1MB body limit. Resamples to max 1600px and JPEG quality 0.85.
+   Returns a Promise<dataURL>. Falls back to the original on error. */
+function compressPhoto(file,maxDim=1600,quality=0.85){
+  return new Promise(resolve=>{
+    try{
+      const url=URL.createObjectURL(file);
+      const img=new Image();
+      img.onload=()=>{
+        const{naturalWidth:w,naturalHeight:h}=img;
+        if(!w||!h){URL.revokeObjectURL(url);return resolve(null);}
+        const s=Math.min(1,maxDim/Math.max(w,h));
+        const cw=Math.round(w*s),ch=Math.round(h*s);
+        const canvas=document.createElement("canvas");canvas.width=cw;canvas.height=ch;
+        let ctx;try{ctx=canvas.getContext("2d",{colorSpace:"display-p3"});}catch{ctx=canvas.getContext("2d");}
+        if(!ctx){URL.revokeObjectURL(url);return resolve(null);}
+        ctx.drawImage(img,0,0,cw,ch);
+        try{
+          const out=canvas.toDataURL("image/jpeg",quality);
+          URL.revokeObjectURL(url);
+          resolve(out);
+        }catch{URL.revokeObjectURL(url);resolve(null);}
+      };
+      img.onerror=()=>{URL.revokeObjectURL(url);resolve(null);};
+      img.src=url;
+    }catch{resolve(null);}
+  });
+}
+
 function PhotoUpload({photos,setPhotos}){
   const fileRef=useRef(null);
-  const handleFiles=e=>{
+  const handleFiles=async e=>{
     const files=Array.from(e.target.files||[]);
-    files.forEach(file=>{
+    for(const file of files){
       /* Skip non-images defensively (some Android/iOS pickers don't honor accept). */
-      if(file.type&&!file.type.startsWith("image/")){try{window.dispatchEvent(new CustomEvent("pure-db-error",{detail:{message:"Not a valid image"}}));}catch(err){console.warn("dispatchEvent failed:",err);}return;}
-      const reader=new FileReader();
-      reader.onload=ev=>setPhotos(prev=>[...prev,{id:Date.now()+Math.random(),src:ev.target.result,name:file.name}]);
-      reader.onerror=()=>{try{window.dispatchEvent(new CustomEvent("pure-db-error",{detail:{message:"Couldn't read photo. Try another."}}));}catch(err){console.warn("dispatchEvent failed:",err);}};
-      try{reader.readAsDataURL(file);}catch{try{window.dispatchEvent(new CustomEvent("pure-db-error",{detail:{message:"Couldn't read photo. Try another."}}));}catch(err){console.warn("dispatchEvent failed:",err);}}
-    });
+      if(file.type&&!file.type.startsWith("image/")){try{window.dispatchEvent(new CustomEvent("pure-db-error",{detail:{message:"Not a valid image"}}));}catch(err){console.warn("dispatchEvent failed:",err);}continue;}
+      const compressed=await compressPhoto(file);
+      if(!compressed){try{window.dispatchEvent(new CustomEvent("pure-db-error",{detail:{message:"Couldn't read photo. Try another."}}));}catch(err){console.warn("dispatchEvent failed:",err);}continue;}
+      setPhotos(prev=>[...prev,{id:Date.now()+Math.random(),src:compressed,name:file.name}]);
+    }
     e.target.value="";
   };
   const remove=id=>setPhotos(prev=>prev.filter(p=>p.id!==id));
@@ -4989,13 +5020,24 @@ function FriendProfile({friend:friendBase,onBack,onSelectCourse,friends,onViewFr
               </div>}
               {filtered.map((p,i)=>{
                 const match=(friends||[]).find(f=>f.name===p.name);
-                const friendLike=match||{...p,id:"u"+i,ratings:{},played:[],want:[]};
+                /* Build 3 fix: don't fabricate fake user IDs ("u3") for non-friends —
+                   they led to hollow FriendProfile shells with broken Follow buttons.
+                   If we have a real friend match, render as a tappable row that opens
+                   their profile. If not, render a non-tappable row so the user still
+                   sees them in the list but can't drill into a broken shell. */
+                if(match){
+                  return(
+                    <button key={p.name} type="button" className="pressable" onClick={()=>{setShowList(null);onViewFriend&&onViewFriend(match);}} style={{background:"none",border:"none",textAlign:"left",cursor:"pointer",fontFamily:"var(--font-body)",display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:i<filtered.length-1?"1px solid var(--c-border)":"none"}}>
+                      <Avatar name={p.name} initials={p.initials} color={p.color} size={38} photo={match.profilePhoto} photoPos={match.profilePhotoPos}/>
+                      <div style={{flex:1}}><div style={{fontWeight:600,fontSize:14}}>{p.name}</div></div>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--c-muted)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                    </button>);
+                }
                 return(
-                  <button key={p.name} type="button" className="pressable" onClick={()=>{setShowList(null);onViewFriend&&onViewFriend(friendLike);}} style={{background:"none",border:"none",textAlign:"left",cursor:"pointer",fontFamily:"var(--font-body)",display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:i<filtered.length-1?"1px solid var(--c-border)":"none"}}>
+                  <div key={p.name} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:i<filtered.length-1?"1px solid var(--c-border)":"none",fontFamily:"var(--font-body)",opacity:0.85}}>
                     <Avatar name={p.name} initials={p.initials} color={p.color} size={38}/>
                     <div style={{flex:1}}><div style={{fontWeight:600,fontSize:14}}>{p.name}</div></div>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--c-muted)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-                  </button>);
+                  </div>);
               })}
               {fullList.length===0&&<div style={{textAlign:"center",padding:"30px 0",color:"var(--c-muted)",fontSize:12}}>No {showList} yet</div>}
               {fullList.length>0&&filtered.length===0&&<div style={{textAlign:"center",padding:"30px 0",color:"var(--c-muted)",fontSize:12}}>No matches for "{listSearch}"</div>}
@@ -6519,13 +6561,21 @@ function ProfileTab({statuses,ratings,profile,onOpenSettings,onGoToTab,onSelect,
             </div>}
             {filtered.map((p,i)=>{
               const match=(friends||[]).find(f=>f.name===p.name);
-              const friendLike=match||{...p,id:"u"+i,ratings:{},played:[],want:[]};
+              /* See companion fix in FriendProfile — non-friends render as
+                 non-tappable rows instead of opening a fake-ID hollow profile. */
+              if(match){
+                return(
+                  <button key={p.name} type="button" className="pressable" onClick={()=>{setShowList(null);onViewFriend&&onViewFriend(match);}} style={{background:"none",border:"none",textAlign:"left",cursor:"pointer",fontFamily:"var(--font-body)",display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:i<filtered.length-1?"1px solid var(--c-border)":"none"}}>
+                    <Avatar name={p.name} initials={p.initials} color={p.color} size={38} photo={match.profilePhoto} photoPos={match.profilePhotoPos}/>
+                    <div style={{flex:1}}><div style={{fontWeight:600,fontSize:14}}>{p.name}</div></div>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--c-muted)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                  </button>);
+              }
               return(
-                <button key={p.name} type="button" className="pressable" onClick={()=>{setShowList(null);onViewFriend&&onViewFriend(friendLike);}} style={{background:"none",border:"none",textAlign:"left",cursor:"pointer",fontFamily:"var(--font-body)",display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:i<filtered.length-1?"1px solid var(--c-border)":"none"}}>
+                <div key={p.name} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:i<filtered.length-1?"1px solid var(--c-border)":"none",fontFamily:"var(--font-body)",opacity:0.85}}>
                   <Avatar name={p.name} initials={p.initials} color={p.color} size={38}/>
                   <div style={{flex:1}}><div style={{fontWeight:600,fontSize:14}}>{p.name}</div></div>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--c-muted)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-                </button>);
+                </div>);
             })}
             {fullList.length===0&&<div style={{textAlign:"center",padding:"30px 0",color:"var(--c-muted)",fontSize:12}}>No {showList} yet</div>}
             {fullList.length>0&&filtered.length===0&&<div style={{textAlign:"center",padding:"30px 0",color:"var(--c-muted)",fontSize:12}}>No matches for "{listSearch}"</div>}
@@ -7180,7 +7230,7 @@ function App(){
         const actRows=(_act&&_act.rows)||[];
         const noteRows=(_notes&&_notes.rows)||[];
         /* Imported rounds → onto profile.ghinRounds */
-        const importedRounds=irData.map(row=>({score:row.score,holes:row.holes,courseRating:row.course_rating,slope:row.slope,teeName:row.tee_name,subName:row.sub_name,date:row.date,courseName:row.course_name,courseId:row.course_id,source:row.source}));
+        const importedRounds=irData.map(row=>({score:row.score,holes:row.holes,courseRating:row.course_rating,slope:row.slope,teeName:row.tee_name,subName:row.sub_name,date:row.date,courseName:row.course_name,courseId:row.course_id,source:row.source,photos:row.photos||[],note:row.note||null,playedWith:row.played_with||[]}));
         const userTeesMap={};
         utData.forEach(row=>{const t={name:row.tee_name,rating:Number(row.course_rating),slope:row.slope};userTeesMap[row.course_id]=[...(userTeesMap[row.course_id]||[]),t];});
         setProfile(p=>p?{...p,ghinRounds:importedRounds,userTees:userTeesMap}:p);
@@ -7696,6 +7746,27 @@ function App(){
   /* Refine early ratings: first 5 (3 baseline + 2 H2H) get tagged; the 2 H2H show a confidence badge.
      Prompt fires at 15 rated units, again at 20 if dismissed, then stops. Completion clears early flags. */
   const[refineState,setRefineState]=useState({earlyRefs:[],promptStage:"pending-15",showPrompt:false,pausedIndex:null});
+  /* Hydrate refineState from profile when profile arrives. The DB value
+     persists across reloads so the "Pause (save progress)" button keeps
+     its promise. */
+  const refineHydratedRef=useRef(false);
+  useEffect(()=>{
+    if(refineHydratedRef.current||!profile)return;
+    refineHydratedRef.current=true;
+    if(profile.refineState)setRefineState(rs=>({...rs,...profile.refineState,showPrompt:false}));
+  },[profile?.id]);
+  /* Persist refineState to DB on every change (debounced 500ms). Strip the
+     transient `showPrompt` flag since that's session-only UI state. */
+  const refinePersistTimerRef=useRef(null);
+  useEffect(()=>{
+    if(!refineHydratedRef.current)return; // skip the initial mount
+    if(refinePersistTimerRef.current)clearTimeout(refinePersistTimerRef.current);
+    refinePersistTimerRef.current=setTimeout(()=>{
+      const{earlyRefs,promptStage,pausedIndex}=refineState;
+      dbWriteProfileFields({refineState:{earlyRefs,promptStage,pausedIndex}});
+    },500);
+    return()=>{if(refinePersistTimerRef.current)clearTimeout(refinePersistTimerRef.current);};
+  },[refineState.earlyRefs,refineState.promptStage,refineState.pausedIndex]);
   const[refineFlow,setRefineFlow]=useState(null); // {index, refs} when actively refining
   const[refineExitConfirm,setRefineExitConfirm]=useState(false);
   /* Pending course requests — holds names of courses user wants added. Feature fully ships with backend. */
