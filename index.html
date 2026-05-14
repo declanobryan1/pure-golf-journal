@@ -3827,7 +3827,7 @@ function CourseDetail({course,statuses,ratings,friends,profile,onBack,onSetStatu
     const t=setTimeout(()=>setHeroLoaded(true),600);
     return()=>clearTimeout(t);
   },[heroLoaded]);
-  const[modal,setModal]=useState(null);const[selectedSub,setSelectedSub]=useState(0);const[listOpen,setListOpen]=useState(false);const[bucketPicker,setBucketPicker]=useState(false);const status=statuses[course.id]||{play:"none"};
+  const[modal,setModal]=useState(null);const[selectedSub,setSelectedSub]=useState(0);const[listOpen,setListOpen]=useState(false);const[bucketPicker,setBucketPicker]=useState(false);const[roundsSheet,setRoundsSheet]=useState(false);const status=statuses[course.id]||{play:"none"};
   const[bucketSubs,setBucketSubs]=useState(()=>new Set(status.wantSubs||[]));
   const[lightbox,setLightbox]=useState(null); // {photos, startIndex}
   const[detailTab,setDetailTab]=useState(()=>ratings[course.id]?"rating":"info"); // rating | info | friends | photos — defaults to Your Rating when already rated
@@ -3945,13 +3945,20 @@ function CourseDetail({course,statuses,ratings,friends,profile,onBack,onSetStatu
             if(!allScores.length)return null;
             const best=Math.min(...allScores);const totalRounds=allScores.length;
             const label=(rating.isHomeCourse||totalRounds>1)?"Personal Best":"Shot";
+            /* Build 5: pill is now tappable when there are 2+ rounds — opens
+               the rounds-played sheet showing each round's score, date, and
+               tagged friends. Single-round case stays non-tappable (nothing
+               useful to drill into). */
+            const isTappable=totalRounds>1;
+            const PillTag=isTappable?"button":"div";
             return(
-              <div style={{marginTop:10,display:"inline-flex",alignItems:"center",gap:6,background:"var(--c-green-dim)",border:"1px solid var(--c-green-border)",borderRadius:10,padding:"6px 14px"}}>
+              <PillTag type={isTappable?"button":undefined} onClick={isTappable?()=>setRoundsSheet(true):undefined} className={isTappable?"pressable":undefined} style={{marginTop:10,display:"inline-flex",alignItems:"center",gap:6,background:"var(--c-green-dim)",border:"1px solid var(--c-green-border)",borderRadius:10,padding:"6px 14px",cursor:isTappable?"pointer":"default",fontFamily:"var(--font-body)"}}>
                 <span style={{fontSize:11,color:"var(--c-muted)",fontWeight:700,letterSpacing:0.5}}>{label}:</span>
                 <span style={{fontWeight:700,fontSize:16,color:"var(--c-green)"}}>{best}</span>
                 {totalRounds>1&&<span style={{fontSize:10,color:"var(--c-muted)",fontWeight:600}}>· {totalRounds} rounds</span>}
                 {ghinForCourse.length>0&&<span style={{fontSize:9,fontWeight:700,color:"#b45309",letterSpacing:0.3,textTransform:"uppercase",marginLeft:2}}>incl. handicap</span>}
-              </div>);
+                {isTappable&&<span style={{fontSize:11,color:"var(--c-green)",fontWeight:700,marginLeft:2}}>{"\u203A"}</span>}
+              </PillTag>);
           })()}
           {/* Build 3: surface tagged friends so the data captured by the
              "Played With" picker actually shows somewhere. Friends without a
@@ -4225,6 +4232,54 @@ function CourseDetail({course,statuses,ratings,friends,profile,onBack,onSetStatu
         </div>
       </div>
     )}
+    {/* Build 5: rounds drilldown sheet — opened by tapping the X-rounds
+       pill on Your Rating tab. Aggregates the rating's own shotScore +
+       all imported_rounds (Quick Log / Batch / GHIN) for this course. */}
+    {roundsSheet&&(()=>{
+      const allRounds=[];
+      if(rating?.shotScore)allRounds.push({score:Number(rating.shotScore),date:rating.date,note:null,playedWith:rating.playedWith||[],source:"rating"});
+      (profile?.ghinRounds||[]).filter(r=>r.courseId===course.id).forEach(r=>{
+        allRounds.push({score:Number(r.score),date:r.date,note:r.note||null,playedWith:r.playedWith||[],source:r.source||"manual",holes:r.holes,subName:r.subName});
+      });
+      allRounds.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+      return(
+      <Sheet onClose={()=>setRoundsSheet(false)}>
+        <div style={{padding:"4px 18px 24px"}}>
+          <div style={{fontSize:10,fontWeight:700,color:"var(--c-green)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:6}}>Your Rounds</div>
+          <h2 style={{fontSize:22,fontWeight:600,fontFamily:"var(--font-display)",lineHeight:1.2,marginBottom:14}}>{course.name}</h2>
+          {allRounds.length===0?<div style={{textAlign:"center",padding:"30px 12px",color:"var(--c-muted)",fontSize:13}}>No rounds logged yet</div>:
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {allRounds.map((r,ri)=>{
+                const taggedFriends=(r.playedWith||[]).map(id=>(friends||[]).find(f=>f.id===id)).filter(Boolean);
+                return(
+                <div key={ri} style={{padding:"12px 14px",background:"var(--c-card)",border:"1px solid var(--c-border)",borderRadius:12,fontFamily:"var(--font-body)"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:taggedFriends.length||r.note?6:0}}>
+                    <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                      <span style={{fontSize:22,fontWeight:700,color:"var(--c-green)",fontFamily:"var(--font-display)"}}>{r.score}</span>
+                      {r.holes===9&&<span style={{fontSize:10,color:"var(--c-muted)",fontWeight:600}}>(9 holes)</span>}
+                      {r.subName&&<span style={{fontSize:10,color:"var(--c-muted)",fontWeight:600}}>· {r.subName}</span>}
+                    </div>
+                    <span style={{fontSize:11,color:"var(--c-muted)",fontWeight:500}}>{r.date?new Date(r.date+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}):"—"}</span>
+                  </div>
+                  {taggedFriends.length>0&&<div style={{display:"flex",alignItems:"center",gap:6,marginBottom:r.note?6:0}}>
+                    <span style={{fontSize:10,color:"var(--c-muted)",fontWeight:600}}>With:</span>
+                    <div style={{display:"flex"}}>
+                      {taggedFriends.slice(0,3).map((f,fi)=>(
+                        <div key={f.id} style={{marginLeft:fi===0?0:-5,border:"1.5px solid var(--c-card)",borderRadius:"50%",width:20,height:20,overflow:"hidden",zIndex:3-fi}}>
+                          <Avatar name={f.name} initials={f.initials} color={f.color} size={17} photo={f.profilePhoto} photoPos={f.profilePhotoPos}/>
+                        </div>
+                      ))}
+                    </div>
+                    <span style={{fontSize:11,color:"var(--c-text)",fontWeight:600}}>{taggedFriends.slice(0,2).map(f=>f.name.split(" ")[0]).join(", ")}{taggedFriends.length>2?` +${taggedFriends.length-2}`:""}</span>
+                  </div>}
+                  {r.note&&<div style={{fontSize:12,color:"var(--c-sub)",fontStyle:"italic",lineHeight:1.45}}>"{r.note}"</div>}
+                </div>);
+              })}
+            </div>
+          }
+        </div>
+      </Sheet>);
+    })()}
   </div>);
 }
 
@@ -5262,6 +5317,21 @@ function LoginScreen(){
   const[error,setError]=useState(null);
   const[busy,setBusy]=useState(false);
   const[notice,setNotice]=useState(null);
+  /* Build 5: track when the notice is specifically the email-confirmation
+     prompt so we can show a Resend button. Stuck users (typo'd email,
+     spam folder) had no recovery path before. */
+  const[confirmPending,setConfirmPending]=useState(false);
+  const[resending,setResending]=useState(false);
+  const resendConfirmation=async()=>{
+    if(!email.trim()||resending)return;
+    setResending(true);setError(null);
+    try{
+      const{error}=await supabase.auth.resend({type:"signup",email:email.trim()});
+      if(error)throw error;
+      setNotice("Sent again — check your inbox (and spam folder).");
+    }catch(e){setError(e.message||"Couldn't resend. Try again in a minute.");}
+    setResending(false);
+  };
   /* If the user tapped "Continue with Apple/Google" but bailed out (failed sign-in,
      hit cancel, etc.) and came back to the app, the OAuth promise never resolves so
      setBusy(false) never fires — leaving the buttons stuck in disabled/grayed state.
@@ -5292,6 +5362,7 @@ function LoginScreen(){
           /* Email confirmation is on — user needs to verify before sign-in works.
              Show a friendly message rather than silently doing nothing. */
           setNotice("Check your email — we sent you a confirmation link.");
+          setConfirmPending(true);
         }
       }
     }catch(e){setError(e.message||"Something went wrong.");}
@@ -5368,7 +5439,10 @@ function LoginScreen(){
         </div>
       </div>
       {error&&<div style={{fontSize:12,color:"#b45309",marginBottom:12,padding:"10px 12px",background:"rgba(180,83,9,0.10)",borderRadius:8,lineHeight:1.5}}>{error}</div>}
-      {notice&&<div style={{fontSize:12,color:"var(--c-green)",marginBottom:12,padding:"10px 12px",background:"var(--c-green-dim)",borderRadius:8,lineHeight:1.5}}>{notice}</div>}
+      {notice&&<div style={{marginBottom:12,padding:"10px 12px",background:"var(--c-green-dim)",borderRadius:8,lineHeight:1.5}}>
+        <div style={{fontSize:12,color:"var(--c-green)"}}>{notice}</div>
+        {confirmPending&&<button type="button" onClick={resendConfirmation} disabled={resending} style={{marginTop:6,background:"transparent",border:"none",color:"var(--c-green)",fontSize:11,fontWeight:700,cursor:resending?"default":"pointer",padding:"4px 0",fontFamily:"var(--font-body)",textDecoration:"underline",opacity:resending?0.6:1}}>{resending?"Sending...":"Didn't get it? Resend confirmation"}</button>}
+      </div>}
       <button type="button" onClick={submit} disabled={busy} className="pressable" style={{width:"100%",background:busy?"var(--c-card)":"var(--c-green)",color:busy?"var(--c-muted)":"#fff",border:"none",borderRadius:12,padding:"14px",fontWeight:700,fontSize:14,cursor:busy?"default":"pointer",fontFamily:"var(--font-body)",marginBottom:14}}>{busy?"…":(mode==="signin"?"Sign In":"Create Account")}</button>
       <button type="button" onClick={()=>{setMode(mode==="signin"?"signup":"signin");setError(null);setNotice(null);}} style={{width:"100%",background:"transparent",color:"var(--c-sub)",border:"none",padding:"8px",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"var(--font-body)"}}>{mode==="signin"?"Need an account? Sign up":"Already have an account? Sign in"}</button>
     </div>
@@ -7686,7 +7760,18 @@ function App(){
           },
           date:row.date||row.created_at,
         };
-        setActivity(prev=>[item,...prev].slice(0,100));
+        /* Build 5: dedup before prepending — realtime reconnect resends recent
+           events, which previously created duplicate activity cards. Match on
+           friend_id + course_id + date + subName (rating identity). */
+        setActivity(prev=>{
+          const itemSub=item.rating?.allSubs?Object.keys(item.rating.allSubs)[0]:null;
+          const exists=prev.some(p=>{
+            const pSub=p.rating?.allSubs?Object.keys(p.rating.allSubs)[0]:null;
+            return p.friend?.id===item.friend?.id&&p.course?.id===item.course?.id&&p.date===item.date&&pSub===itemSub;
+          });
+          if(exists)return prev;
+          return[item,...prev].slice(0,100);
+        });
       })
       .subscribe());
 
@@ -7738,6 +7823,24 @@ function App(){
           }catch{}
         }));
         await Push.register();
+        /* Build 5: when the app foregrounds, clear the iOS app badge so the
+           user doesn't see a stale red dot for notifications they've already
+           seen in-app. Also refresh the Supabase session — backgrounding
+           >70 min can leave a stale JWT that fails the first request. */
+        try{
+          const App=window.Capacitor?.Plugins?.App;
+          if(App?.addListener){
+            const stateHandle=await App.addListener("appStateChange",async({isActive})=>{
+              if(!isActive||removed)return;
+              try{
+                if(Push.removeAllDeliveredNotifications)await Push.removeAllDeliveredNotifications();
+                if(Push.setBadgeCount)await Push.setBadgeCount({count:0});
+              }catch{}
+              try{await supabase.auth.refreshSession();}catch{}
+            });
+            listeners.push(stateHandle);
+          }
+        }catch(e){console.warn("appStateChange wiring failed:",e?.message||e);}
       }catch(e){console.warn("Push setup failed:",e?.message||e);}
     })();
     return()=>{
