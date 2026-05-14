@@ -4609,9 +4609,17 @@ function FriendsTab({friends,followers=[],activity:activityFromProps,onAddFriend
       :filteredFriends.length===0?
         <div style={{textAlign:"center",padding:"40px 20px",color:"var(--c-muted)",fontSize:12}}>No friends match "{friendQuery}"</div>
       :filteredFriends.map((f,i)=>{
-        const ct=f.played.length;
+        /* Played count expands sub-courses (Bethpage 4 subs = 4 played) so this
+           matches what users see on their own profile. */
+        const ct=(f.played||[]).reduce((sum,cid)=>{
+          const c=COURSES.find(x=>x.id===cid);
+          const r=f.ratings?.[cid];
+          if(c?.subcourses&&r?.allSubs&&Object.keys(r.allSubs).length)return sum+Object.keys(r.allSubs).length;
+          return sum+1;
+        },0);
         const lastRating=Object.values(f.ratings).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
         const lastCourse=lastRating?COURSES.find(c=>c.id===Number(Object.entries(f.ratings).find(([,r])=>r===lastRating)?.[0])):null;
+        const homeCourse=f.homeCourseId?COURSES.find(c=>c.id===f.homeCourseId):null;
         return(
           <div key={f.id} className="fade-up pressable" onClick={()=>onViewFriend(f)}
             style={{display:"flex",gap:12,padding:"14px 16px",borderBottom:"1px solid var(--c-border)",cursor:"pointer",animationDelay:`${i*40}ms`}}>
@@ -4619,6 +4627,7 @@ function FriendsTab({friends,followers=[],activity:activityFromProps,onAddFriend
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontWeight:600,fontSize:14,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}{f.username&&<span style={{color:"var(--c-muted)",fontWeight:500,fontSize:12,marginLeft:6}}>@{f.username}</span>}</div>
               <div style={{fontSize:11,color:"var(--c-muted)"}}>
+                {homeCourse?<span>🏠 {homeCourse.name.split(" Golf")[0].split(" Country")[0]} · </span>:null}
                 <span>{ct} courses played</span>
                 {lastCourse&&<span> · Last played {lastCourse.name.split(" ")[0]}...</span>}
               </div>
