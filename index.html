@@ -630,6 +630,10 @@ async function dbWriteProfileFields(fields){
   if("welcomeTourSeen" in fields)row.welcome_tour_seen=!!fields.welcomeTourSeen;
   if("selfReportedHandicap" in fields)row.self_reported_handicap=fields.selfReportedHandicap;
   if("selfReportedAt" in fields)row.self_reported_at=fields.selfReportedAt;
+  if("hideRatings" in fields)row.hide_ratings=fields.hideRatings;
+  if("hideShots" in fields)row.hide_shots=!!fields.hideShots;
+  if("privateProfile" in fields)row.private_profile=!!fields.privateProfile;
+  if("refineState" in fields)row.refine_state=fields.refineState;
   if(Object.keys(row).length===0)return true;
   const{error}=await supabase.from("users").update(row).eq("id",uid);
   if(error){_dbFail("users update",error);return false;}
@@ -5770,6 +5774,9 @@ function CreditsView({onBack}){
 function SettingsView({settings,onUpdate,onBack,profile,onUpdateProfile,onSetHomeCourse,refineState,onStartRefine,ratings,onQuickLog,onOpenBatchEntry,onOpenHandicapEntry,onStartTour,onSignOut,onResetAccount,onOpenFeedback}){
   const[editField,setEditField]=useState(null); // null | "name" | "email" | "home"
   const[showCredits,setShowCredits]=useState(false);
+  /* Audience picker for "Hide My Ratings" — appears when toggling ON. Two
+     choices: hide from everyone, or hide from non-friends only. */
+  const[hideRatingsPicker,setHideRatingsPicker]=useState(false);
   const[draft,setDraft]=useState("");
   const[courseSearch,setCourseSearch]=useState("");
   const[ghinResult,setGhinResult]=useState(null); // {imported, matched, skipped} on successful import
@@ -5911,9 +5918,18 @@ function SettingsView({settings,onUpdate,onBack,profile,onUpdateProfile,onSetHom
 
       <div style={{display:"flex",flexDirection:"column",gap:0}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"16px 0",borderBottom:"1px solid var(--c-border)"}}>
-          <div><div style={{fontWeight:600,fontSize:14}}>Hide My Ratings</div>
-            <div style={{color:"var(--c-muted)",fontSize:11,marginTop:2}}>Others won't see your ratings</div></div>
-          <Toggle on={settings.hideScores} onToggle={()=>onUpdate({...settings,hideScores:!settings.hideScores})}/>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:600,fontSize:14}}>Hide My Ratings</div>
+            <div style={{color:"var(--c-muted)",fontSize:11,marginTop:2}}>{
+              settings.hideRatings==="everyone"?"Hidden from everyone":
+              settings.hideRatings==="non-friends"?"Hidden from non-friends only":
+              "Others can see your ratings"
+            }</div>
+          </div>
+          <Toggle on={settings.hideRatings!=="off"} onToggle={()=>{
+            if(settings.hideRatings!=="off"){onUpdate({...settings,hideRatings:"off"});}
+            else{setHideRatingsPicker(true);}
+          }}/>
         </div>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"16px 0",borderBottom:"1px solid var(--c-border)"}}>
           <div><div style={{fontWeight:600,fontSize:14}}>Hide Shot Scores</div>
@@ -6160,6 +6176,24 @@ function SettingsView({settings,onUpdate,onBack,profile,onUpdateProfile,onSetHom
               </div>
             </>
           )}
+        </div>
+      </Sheet>
+    )}
+    {hideRatingsPicker&&(
+      <Sheet onClose={()=>setHideRatingsPicker(false)}>
+        <div style={{padding:"4px 18px 18px"}}>
+          <div style={{fontSize:10,fontWeight:700,color:"var(--c-green)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:6}}>Hide My Ratings</div>
+          <h2 style={{fontSize:22,fontWeight:600,fontFamily:"var(--font-display)",lineHeight:1.2,marginBottom:8}}>Who can see them?</h2>
+          <div style={{fontSize:13,color:"var(--c-muted)",lineHeight:1.55,marginBottom:18}}>Pick who you want to keep your ratings private from. You can change this anytime.</div>
+          <button type="button" className="pressable" onClick={()=>{onUpdate({...settings,hideRatings:"non-friends"});setHideRatingsPicker(false);}} style={{width:"100%",textAlign:"left",background:"var(--c-card)",border:"1px solid var(--c-border)",borderRadius:12,padding:"14px 16px",cursor:"pointer",fontFamily:"var(--font-body)",marginBottom:10}}>
+            <div style={{fontWeight:600,fontSize:14,marginBottom:3}}>Hide from non-friends</div>
+            <div style={{fontSize:12,color:"var(--c-muted)",lineHeight:1.45}}>Friends you follow can still see your ratings. Everyone else cannot.</div>
+          </button>
+          <button type="button" className="pressable" onClick={()=>{onUpdate({...settings,hideRatings:"everyone"});setHideRatingsPicker(false);}} style={{width:"100%",textAlign:"left",background:"var(--c-card)",border:"1px solid var(--c-border)",borderRadius:12,padding:"14px 16px",cursor:"pointer",fontFamily:"var(--font-body)",marginBottom:14}}>
+            <div style={{fontWeight:600,fontSize:14,marginBottom:3}}>Hide from everyone</div>
+            <div style={{fontSize:12,color:"var(--c-muted)",lineHeight:1.45}}>Nobody on Pure can see your ratings — not even friends.</div>
+          </button>
+          <button type="button" onClick={()=>setHideRatingsPicker(false)} style={{width:"100%",background:"transparent",color:"var(--c-muted)",border:"none",padding:"8px",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"var(--font-body)"}}>Cancel</button>
         </div>
       </Sheet>
     )}
@@ -7120,7 +7154,14 @@ function App(){
           profilePhotoPos:u.data.profile_photo_pos,
           welcomeTourSeen:u.data.welcome_tour_seen,
           selfReportedHandicap:u.data.self_reported_handicap,
+          selfReportedAt:u.data.self_reported_at,
           isTestUser:u.data.is_test_user,
+          /* Privacy settings — hydrated from DB. Defaults match DB defaults. */
+          hideRatings:u.data.hide_ratings||"off",
+          hideShots:!!u.data.hide_shots,
+          privateProfile:!!u.data.private_profile,
+          /* Refine flow state persisted across sessions (per build 3) */
+          refineState:u.data.refine_state||null,
           followers:[],following:[],
           /* ghinRounds + userTees fill in when secondary load resolves */
           ghinRounds:[],
@@ -7360,7 +7401,22 @@ function App(){
     if(!previewsStorageKey)return;
     try{localStorage.setItem(previewsStorageKey,JSON.stringify(coursePreviews));}catch{}
   },[coursePreviews,previewsStorageKey]);
-  const[settings,setSettings]=useState({hideScores:false,hideShots:false,privateProfile:false});
+  /* Settings are now derived from profile (which is hydrated from users table)
+     and persist via dbWriteProfileFields. Keeps a single source of truth. */
+  const settings=useMemo(()=>({
+    hideRatings:profile?.hideRatings||"off",
+    hideShots:!!profile?.hideShots,
+    privateProfile:!!profile?.privateProfile,
+  }),[profile?.hideRatings,profile?.hideShots,profile?.privateProfile]);
+  const updateSettings=useCallback((next)=>{
+    /* Optimistic local update + DB persist. Caller passes full settings object. */
+    setProfile(p=>p?{...p,...next}:p);
+    const writePayload={};
+    if("hideRatings" in next)writePayload.hideRatings=next.hideRatings;
+    if("hideShots" in next)writePayload.hideShots=next.hideShots;
+    if("privateProfile" in next)writePayload.privateProfile=next.privateProfile;
+    if(Object.keys(writePayload).length>0)dbWriteProfileFields(writePayload);
+  },[]);
   const[showSettings,setShowSettings]=useState(false);
   const[showNotifications,setShowNotifications]=useState(false);
   /* When the user opens the Add Round / Add Multiple modal from the Profile > Scores sheet, we remember that so we can reopen the sheet after they finish. ProfileTab consumes this on mount. */
@@ -8156,7 +8212,7 @@ function App(){
       </div>}
 
       <div ref={mainScrollRef} style={{flex:1,overflowY:"auto",overscrollBehavior:"contain",touchAction:"pan-y"}}>
-        {showSettings?<SettingsView settings={settings} onUpdate={setSettings} onBack={()=>setShowSettings(false)} profile={profile} onUpdateProfile={setProfile} onSetHomeCourse={handleSetHomeCourse} refineState={refineState} onStartRefine={()=>{setShowSettings(false);const startIdx=refineState.pausedIndex!=null?refineState.pausedIndex:0;setRefineFlow({index:startIdx});setRefineState(rs=>({...rs,pausedIndex:null}));}} ratings={ratings} onQuickLog={()=>setQuickLog({})} onOpenBatchEntry={openBatchEntry} onOpenHandicapEntry={openHandicapEntry} onStartTour={()=>{setShowSettings(false);setShowWelcomeTour(true);}} onSignOut={handleSignOut} onResetAccount={handleResetAccount} onOpenFeedback={()=>setFeedbackOpen({source:"settings",context:{tab,ratingsCount:Object.keys(ratings||{}).length}})}/>
+        {showSettings?<SettingsView settings={settings} onUpdate={updateSettings} onBack={()=>setShowSettings(false)} profile={profile} onUpdateProfile={setProfile} onSetHomeCourse={handleSetHomeCourse} refineState={refineState} onStartRefine={()=>{setShowSettings(false);const startIdx=refineState.pausedIndex!=null?refineState.pausedIndex:0;setRefineFlow({index:startIdx});setRefineState(rs=>({...rs,pausedIndex:null}));}} ratings={ratings} onQuickLog={()=>setQuickLog({})} onOpenBatchEntry={openBatchEntry} onOpenHandicapEntry={openHandicapEntry} onStartTour={()=>{setShowSettings(false);setShowWelcomeTour(true);}} onSignOut={handleSignOut} onResetAccount={handleResetAccount} onOpenFeedback={()=>setFeedbackOpen({source:"settings",context:{tab,ratingsCount:Object.keys(ratings||{}).length}})}/>
         :course?<CourseDetail course={course} statuses={statuses} ratings={ratings} friends={friends} profile={profile} onBack={()=>{
           const prev=navStack[navStack.length-1];
           if(prev){setNavStack(s=>s.slice(0,-1));setCourse(null);if(prev.type==="friend")setViewFriend(prev.friend);else if(prev.type==="course")setCourse(prev.course);}
