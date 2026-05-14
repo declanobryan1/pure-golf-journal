@@ -83,6 +83,20 @@ We do **not** sell your information.
 
 ---
 
+## 4a. Photo License
+
+When you upload photos to Pure (course photos, round photos, or as part of a rating), you grant us a non-exclusive, worldwide, royalty-free license to display those photos within the App, including:
+
+- To other Pure users who follow you (subject to your privacy settings)
+- As your personal hero/preview photo for that course
+- In future community-photo features that allow other users to optionally feature your photo as a course preview on their own device, with attribution to you
+
+This license is solely for the purpose of operating the App's features. You retain ownership of your photos. You can remove a photo at any time by deleting the rating or round it was attached to, or by reporting it for removal. Removing a photo revokes this license going forward, but does not retroactively recall copies that other users may have already cached on-device.
+
+You agree not to upload photos you do not have the right to share (e.g., copyrighted images you don't own, photos of identifiable individuals without their consent, or content prohibited by Apple's App Store guidelines).
+
+---
+
 ## 5. Your Rights and Controls
 
 You have the following rights regarding your data:
