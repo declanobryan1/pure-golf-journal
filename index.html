@@ -3924,6 +3924,26 @@ function CourseDetail({course,statuses,ratings,friends,profile,onBack,onSetStatu
                 {ghinForCourse.length>0&&<span style={{fontSize:9,fontWeight:700,color:"#b45309",letterSpacing:0.3,textTransform:"uppercase",marginLeft:2}}>incl. handicap</span>}
               </div>);
           })()}
+          {/* Build 3: surface tagged friends so the data captured by the
+             "Played With" picker actually shows somewhere. Friends without a
+             match in the user's friends list (deleted accounts, etc.) are
+             silently skipped. */}
+          {rating.playedWith?.length>0&&(()=>{
+            const tagged=rating.playedWith.map(id=>(friends||[]).find(f=>f.id===id)).filter(Boolean);
+            if(!tagged.length)return null;
+            return(
+            <div style={{marginTop:14,display:"inline-flex",alignItems:"center",gap:8,background:"var(--c-surface)",border:"1px solid var(--c-border)",borderRadius:10,padding:"6px 12px"}}>
+              <span style={{fontSize:11,color:"var(--c-muted)",fontWeight:700,letterSpacing:0.5}}>Played with</span>
+              <div style={{display:"flex"}}>
+                {tagged.slice(0,4).map((f,fi)=>(
+                  <div key={f.id} style={{marginLeft:fi===0?0:-6,border:"1.5px solid var(--c-bg)",borderRadius:"50%",width:22,height:22,overflow:"hidden",zIndex:4-fi}}>
+                    <Avatar name={f.name} initials={f.initials} color={f.color} size={19} photo={f.profilePhoto} photoPos={f.profilePhotoPos}/>
+                  </div>
+                ))}
+              </div>
+              <span style={{fontSize:11,color:"var(--c-text)",fontWeight:600}}>{tagged.slice(0,2).map(f=>f.name.split(" ")[0]).join(", ")}{tagged.length>2?` +${tagged.length-2}`:""}</span>
+            </div>);
+          })()}
           {rating.history?.length>0&&<div style={{marginTop:14,padding:"10px 14px",background:"var(--c-surface)",borderRadius:10,textAlign:"left",maxWidth:320,margin:"14px auto 0"}}>
             <div style={{fontSize:9,fontWeight:700,color:"var(--c-muted)",letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Rating History</div>
             {rating.history.slice(-3).reverse().map((h,i)=>(
@@ -4350,7 +4370,7 @@ function DiscoverTab({statuses,ratings,onSelect,focusSearch,onFocusConsumed,scro
 /* ═══════════════════════════════════════════════════════════
    MY COURSES TAB
 ═══════════════════════════════════════════════════════════ */
-function MyCoursesTab({statuses,ratings,onSelect,subtab,setSubtab,onGoToTab,coursePreviews}){
+function MyCoursesTab({statuses,ratings,onSelect,subtab,setSubtab,onGoToTab,coursePreviews,friends}){
   const tab=subtab||"played";const setTab=setSubtab||(()=>{});
   const[q,setQ]=useState("");
   const filterBySearch=(arr)=>{if(!q.trim())return arr;const s=norm(q);return arr.filter(c=>norm(c.name).includes(s)||norm(c.city).includes(s)||norm(c.state).includes(s));};
@@ -4428,10 +4448,32 @@ function MyCoursesTab({statuses,ratings,onSelect,subtab,setSubtab,onGoToTab,cour
         <div style={{fontSize:12,marginBottom:q?0:16,lineHeight:1.5,maxWidth:260,margin:q?"0 auto":"0 auto 16px"}}>{q?"Try a different search":"Save courses you want to play. We'll remind you when friends rate them."}</div>
         {!q&&<button type="button" className="pressable" onClick={()=>onGoToTab&&onGoToTab("discover")} style={{background:"var(--c-green)",color:"#fff",border:"none",borderRadius:10,padding:"10px 20px",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"var(--font-body)"}}>Browse Courses</button>}
       </div>
-      :want.map((c,i)=>{const wantSubs=statuses[c.id]?.wantSubs;return(<div key={c.id} className="fade-up pressable" onClick={()=>onSelect(c)} style={{display:"flex",gap:12,padding:"12px 16px",borderBottom:"1px solid var(--c-border)",cursor:"pointer",animationDelay:`${i*35}ms`}}>
-        <div style={{width:40,height:40,borderRadius:10,overflow:"hidden",flexShrink:0,background:"var(--c-surface)"}}>{(coursePreviews?.[c.id]||c.img)&&<img src={coursePreviews?.[c.id]||c.img} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>}</div>
-        <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600,fontSize:14,marginBottom:2}}>{c.name}</div><div style={{color:"var(--c-muted)",fontSize:11,marginBottom:4}}>{c.city}, {c.state}{wantSubs&&wantSubs.length>0&&<span style={{marginLeft:6,color:"var(--c-blue)",fontWeight:600}}>· {wantSubs.join(", ")}</span>}</div>
-          <div style={{display:"flex",gap:4,flexWrap:"wrap"}}><Tag>{c.terrain}</Tag><Tag>{c.access}</Tag></div></div></div>);}))}
+      :want.map((c,i)=>{
+        const wantSubs=statuses[c.id]?.wantSubs;
+        /* Build 3: which friends also have this on their bucket list?
+           Data comes from the eager-loaded friend.want map (Wave C). */
+        const friendsWithBucket=(friends||[]).filter(f=>(f.want||[]).includes(c.id));
+        return(
+        <div key={c.id} className="fade-up pressable" onClick={()=>onSelect(c)} style={{display:"flex",gap:12,padding:"12px 16px",borderBottom:"1px solid var(--c-border)",cursor:"pointer",animationDelay:`${i*35}ms`}}>
+          <div style={{width:40,height:40,borderRadius:10,overflow:"hidden",flexShrink:0,background:"var(--c-surface)"}}>{(coursePreviews?.[c.id]||c.img)&&<img src={coursePreviews?.[c.id]||c.img} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:600,fontSize:14,marginBottom:2}}>{c.name}</div>
+            <div style={{color:"var(--c-muted)",fontSize:11,marginBottom:4}}>{c.city}, {c.state}{wantSubs&&wantSubs.length>0&&<span style={{marginLeft:6,color:"var(--c-blue)",fontWeight:600}}>· {wantSubs.join(", ")}</span>}</div>
+            <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+              <Tag>{c.terrain}</Tag><Tag>{c.access}</Tag>
+              {friendsWithBucket.length>0&&<div style={{display:"flex",alignItems:"center",gap:4,marginLeft:"auto"}}>
+                <div style={{display:"flex"}}>
+                  {friendsWithBucket.slice(0,3).map((f,fi)=>(
+                    <div key={f.id} style={{marginLeft:fi===0?0:-6,border:"1.5px solid var(--c-bg)",borderRadius:"50%",width:20,height:20,overflow:"hidden",zIndex:3-fi}}>
+                      <Avatar name={f.name} initials={f.initials} color={f.color} size={17} photo={f.profilePhoto} photoPos={f.profilePhotoPos}/>
+                    </div>
+                  ))}
+                </div>
+                {friendsWithBucket.length>3&&<span style={{fontSize:10,color:"var(--c-muted)",fontWeight:600}}>+{friendsWithBucket.length-3}</span>}
+              </div>}
+            </div>
+          </div>
+        </div>);}))}
   </div>);
 }
 
@@ -5336,9 +5378,15 @@ function Onboarding({onComplete,inviteUser,onRequestCourse,existingProfile}){
     setRequestSubmitted(true);
   };
   const homePhotoRef=useRef(null);
-  const handleHomePhotos=e=>{
+  const handleHomePhotos=async e=>{
+    /* Build 3: route through compressPhoto to avoid 8-12MB iPhone photos
+       blowing past Supabase row size + localStorage quota. */
     const files=Array.from(e.target.files||[]);
-    files.forEach(file=>{const reader=new FileReader();reader.onload=ev=>setHomePhotos(prev=>[...prev,{id:Date.now()+Math.random(),src:ev.target.result}]);reader.readAsDataURL(file);});
+    for(const file of files){
+      const compressed=await compressPhoto(file);
+      if(!compressed)continue;
+      setHomePhotos(prev=>[...prev,{id:Date.now()+Math.random(),src:compressed}]);
+    }
     e.target.value="";
   };
   const[q,setQ]=useState("");
@@ -8519,7 +8567,7 @@ function App(){
         :<>
           {tab==="home"&&<HomeTab profile={profile} statuses={statuses} ratings={ratings} friends={friends} activity={activity} onSelect={setCourse} onGoToTab={goToTab} reactions={reactions} toggleEmoji={toggleEmoji} addComment={addComment} baselineRemaining={baselineRemaining} baselineGoal={BASELINE_GOAL} onViewFriend={f=>setViewFriend(f)} sessionRandomFactId={sessionRandomFactId} coursePreviews={coursePreviews}/>}
           {tab==="discover"&&<DiscoverTab statuses={statuses} ratings={ratings} onSelect={setCourse} focusSearch={discoverFocusSearch} onFocusConsumed={()=>setDiscoverFocusSearch(false)} scrollToTopNonce={tabScrollNonce} profile={profile} onRequestCourse={handleRequestCourse} coursePreviews={coursePreviews}/>}
-          {tab==="mycourses"&&<MyCoursesTab statuses={statuses} ratings={ratings} onSelect={setCourse} subtab={mcSubtab} setSubtab={setMcSubtab} onGoToTab={goToTab} coursePreviews={coursePreviews}/>}
+          {tab==="mycourses"&&<MyCoursesTab statuses={statuses} ratings={ratings} onSelect={setCourse} subtab={mcSubtab} setSubtab={setMcSubtab} onGoToTab={goToTab} coursePreviews={coursePreviews} friends={friends}/>}
           {tab==="friends"&&<FriendsTab friends={friends} followers={followers} activity={activity} onAddFriend={addFriend} onViewFriend={f=>{setViewFriend(f);}} onSelectCourse={setCourse} reactions={reactions} toggleEmoji={toggleEmoji} addComment={addComment} myUid={session?.user?.id}/>}
           {tab==="profile"&&<ProfileTab statuses={statuses} ratings={ratings} profile={profile} onOpenSettings={target=>setShowSettings(typeof target==="string"?target:true)} onGoToTab={goToTab} onSelect={setCourse} friends={friends} followers={followers} onViewFriend={f=>setViewFriend(f)} onRequestCourse={handleRequestCourse} pendingRequests={pendingRequests} onQuickLog={()=>setQuickLog({})} onOpenBatchEntry={openBatchEntry} onOpenHandicapEntry={openHandicapEntry} autoOpenList={profileAutoOpenList} onConsumeAutoOpenList={()=>setProfileAutoOpenList(null)}/>}
         </>}
