@@ -4706,9 +4706,19 @@ function FriendsTab({friends,followers=[],activity:activityFromProps,onAddFriend
                 ))}
               </div>
               {cmts.length>0&&<div style={{marginTop:10,display:"flex",flexDirection:"column",gap:6}}>
-                {cmts.map((co,j)=>{const isEmojiOnly=/^\p{Emoji}+$/u.test(co.text.trim());return(
+                {cmts.map((co,j)=>{
+                  const isEmojiOnly=/^\p{Emoji}+$/u.test(co.text.trim());
+                  /* Build 3: look up the reactor by reactorId so multi-person
+                     reaction threads don't all attribute to "You". */
+                  let authorLabel="Someone";
+                  if(co.reactorId===myUid)authorLabel="You";
+                  else{
+                    const reactor=(friends||[]).find(f=>f.id===co.reactorId);
+                    if(reactor)authorLabel=reactor.name.split(" ")[0];
+                  }
+                  return(
                   <div key={j} style={{background:"var(--c-surface)",borderRadius:10,padding:"7px 11px",fontSize:isEmojiOnly?16:12,color:"var(--c-text)",lineHeight:1.4}}>
-                    <span style={{fontWeight:600,marginRight:6,fontSize:12}}>You</span>{co.text}
+                    <span style={{fontWeight:600,marginRight:6,fontSize:12}}>{authorLabel}</span>{co.text}
                   </div>);
                 })}
               </div>}
@@ -5424,10 +5434,22 @@ function Onboarding({onComplete,inviteUser,onRequestCourse,existingProfile}){
   /* Email already collected at sign-up — onboarding only needs name + username + an available username. */
   const canContinue=firstName.trim()&&lastName.trim()&&usernameClean.length>=3&&/^[a-z0-9_.]+$/.test(usernameClean)&&usernameStatus!=="taken"&&usernameStatus!=="checking";
 
+  /* Build 3: lets the user back out of onboarding to switch accounts.
+     Confirms before signing out so a misclick doesn't dump them. The auth
+     state change listener routes them back to LoginScreen automatically. */
+  const switchAccount=async()=>{
+    if(!window.confirm("Sign out and use a different account? Your in-progress info will be lost."))return;
+    try{await supabase.auth.signOut();}catch{}
+    try{window.location.reload();}catch{}
+  };
+
   if(step===0) return(
-    <div className="fade-up" style={{padding:"calc(env(safe-area-inset-top, 0px) + 40px) 24px 40px",textAlign:"center"}}>
+    <div className="fade-up" style={{padding:"calc(env(safe-area-inset-top, 0px) + 14px) 24px 40px",textAlign:"center"}}>
       {showCropper&&profilePhoto&&<PhotoCropper photo={profilePhoto} initialX={photoX} initialY={photoY} initialScale={photoScale} onSave={({dataUrl,x,y,scale})=>{if(dataUrl&&dataUrl!==profilePhoto){setProfilePhoto(dataUrl);setPhotoX(50);setPhotoY(50);setPhotoScale(1);}else{setPhotoX(x);setPhotoY(y);setPhotoScale(scale);}setShowCropper(false);}} onCancel={()=>setShowCropper(false)}/>}
-      <div style={{marginBottom:inviteUser?14:28,marginTop:12}}>
+      <div style={{display:"flex",justifyContent:"flex-start",marginBottom:18}}>
+        <button type="button" onClick={switchAccount} className="pressable" style={{background:"none",border:"none",color:"var(--c-muted)",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"var(--font-body)",padding:"6px 0"}}>Use a different account</button>
+      </div>
+      <div style={{marginBottom:inviteUser?14:28,marginTop:0}}>
         <div style={{fontSize:48,fontWeight:400,fontFamily:"var(--font-display)",fontStyle:"italic",color:"var(--c-green)",lineHeight:1,marginBottom:6,letterSpacing:-0.5}}>Pure</div>
         <div style={{fontSize:11,color:"var(--c-muted)",fontWeight:600,letterSpacing:2.4,textTransform:"uppercase"}}>Golf Journal</div>
       </div>
@@ -5531,7 +5553,11 @@ function Onboarding({onComplete,inviteUser,onRequestCourse,existingProfile}){
     /* Same fixed-top / scrollable-middle / fixed-bottom layout as the area picker.
        Course list is the only scrollable region. */
     <div className="fade-up" style={{height:"100%",display:"flex",flexDirection:"column"}}>
-      <div style={{flexShrink:0,padding:"calc(env(safe-area-inset-top, 0px) + 30px) 24px 14px"}}>
+      <div style={{flexShrink:0,padding:"calc(env(safe-area-inset-top, 0px) + 14px) 24px 14px"}}>
+        <button type="button" onClick={()=>setStep(0)} className="pressable" style={{background:"var(--c-card)",border:"1px solid var(--c-border)",borderRadius:10,padding:"7px 12px",cursor:"pointer",fontWeight:600,fontSize:13,fontFamily:"var(--font-body)",color:"var(--c-green)",display:"inline-flex",alignItems:"center",gap:4,marginBottom:14}}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          Back
+        </button>
         <div style={{marginBottom:8}}>
           <div style={{fontSize:22,fontWeight:500,fontFamily:"var(--font-display)",lineHeight:1.2}}>Hey {firstName.trim()}</div>
           <div style={{color:"var(--c-muted)",fontSize:13,marginTop:4}}>What's your home course? This will be your first rating anchor.</div>
@@ -5607,7 +5633,11 @@ function Onboarding({onComplete,inviteUser,onRequestCourse,existingProfile}){
   if(step===2){
     const hc=COURSES.find(c=>c.id===homeCourse);
     return(
-    <div className="fade-up" style={{padding:"calc(env(safe-area-inset-top, 0px) + 30px) 24px 40px"}}>
+    <div className="fade-up" style={{padding:"calc(env(safe-area-inset-top, 0px) + 14px) 24px 40px"}}>
+      <button type="button" onClick={()=>setStep(1)} className="pressable" style={{background:"var(--c-card)",border:"1px solid var(--c-border)",borderRadius:10,padding:"7px 12px",cursor:"pointer",fontWeight:600,fontSize:13,fontFamily:"var(--font-body)",color:"var(--c-green)",display:"inline-flex",alignItems:"center",gap:4,marginBottom:18}}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        Back
+      </button>
       <div style={{marginBottom:24}}>
         <div style={{fontSize:10,fontWeight:700,color:"var(--c-green)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:6}}>Rate Your Home Course</div>
         <div style={{fontSize:20,fontWeight:500,fontFamily:"var(--font-display)",lineHeight:1.2,marginBottom:4}}>{hc?.name}</div>
@@ -6723,7 +6753,7 @@ const TABS=[{key:"home",label:"Clubhouse"},{key:"discover",label:"Discover"},{ke
    HOME TAB
 ═══════════════════════════════════════════════════════════ */
 /* Standalone activity card for Clubhouse recent activity — handles reactions + comments cleanly */
-function ClubhouseActivityCard({item,rxKey,reactions,toggleEmoji,addComment,onSelect,onViewFriend,isLast,onOpenLightbox}){
+function ClubhouseActivityCard({item,rxKey,reactions,toggleEmoji,addComment,onSelect,onViewFriend,isLast,onOpenLightbox,friends,myUid}){
   const REACTION_EMOJIS=["\u{1F525}","\u{1F44F}","\u{1F44D}","\u2764\uFE0F","\u26F3\uFE0F"];
   const rx=reactions[rxKey]||{emojis:[],comments:[]};
   const cmts=rx.comments||[];
@@ -6788,9 +6818,17 @@ function ClubhouseActivityCard({item,rxKey,reactions,toggleEmoji,addComment,onSe
       </div>
       {/* Existing comments (including emoji reactions) */}
       {cmts.length>0&&<div style={{marginTop:8,paddingLeft:42,display:"flex",flexDirection:"column",gap:5}}>
-        {cmts.map((co,j)=>{const isEmojiOnly=/^\p{Emoji}+$/u.test(co.text.trim());return(
+        {cmts.map((co,j)=>{
+          const isEmojiOnly=/^\p{Emoji}+$/u.test(co.text.trim());
+          let authorLabel="Someone";
+          if(co.reactorId===myUid)authorLabel="You";
+          else{
+            const reactor=(friends||[]).find(f=>f.id===co.reactorId);
+            if(reactor)authorLabel=reactor.name.split(" ")[0];
+          }
+          return(
           <div key={j} style={{background:"var(--c-surface)",borderRadius:10,padding:"7px 11px",fontSize:isEmojiOnly?16:12,color:"var(--c-text)",lineHeight:1.4}}>
-            <span style={{fontWeight:700,marginRight:6,color:"var(--c-green)",fontSize:12}}>You</span>{co.text}
+            <span style={{fontWeight:700,marginRight:6,color:"var(--c-green)",fontSize:12}}>{authorLabel}</span>{co.text}
           </div>);
         })}
       </div>}
@@ -6990,7 +7028,7 @@ function HomeTab({profile,statuses,ratings,friends,activity,onSelect,onGoToTab,r
       <div style={{fontSize:10,fontWeight:700,color:"var(--c-muted)",letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Friend Activity</div>
       {recentActivity.map((item,i)=>{
         const rxKey=`${item.friend.id}-${item.course.id}`;
-        return(<ClubhouseActivityCard key={rxKey} item={item} rxKey={rxKey} reactions={reactions} toggleEmoji={toggleEmoji} addComment={addComment} onSelect={onSelect} onViewFriend={onViewFriend} isLast={i===recentActivity.length-1} onOpenLightbox={openLightbox}/>);
+        return(<ClubhouseActivityCard key={rxKey} item={item} rxKey={rxKey} reactions={reactions} toggleEmoji={toggleEmoji} addComment={addComment} onSelect={onSelect} onViewFriend={onViewFriend} isLast={i===recentActivity.length-1} onOpenLightbox={openLightbox} friends={friends} myUid={profile?.id}/>);
       })}
     </div>}
     {/* Permanent footer sign-off — subtle IG follow link at the end of the clubhouse feed */}
@@ -7028,6 +7066,15 @@ const TOUR_SLIDES=[
     splitCards:[
       {label:"Rate",color:"var(--c-green)",desc:"Tell Pure how good a course is — compare it to others you've played. Your rating stays with you.",note:"Your opinion of the course."},
       {label:"+ Score",color:"var(--c-sub)",desc:"Just played another round? Add the score without re-rating. Updates your handicap.",note:"Your round for the day."},
+    ],
+  },
+  {
+    emoji:"\u{1F3AF}",
+    title:"Plan your next round",
+    body:null,
+    options:[
+      {emoji:"\u2B50",label:"Bucket list",desc:"Save courses you want to play. See when friends rate them."},
+      {emoji:"\u{1F5D3}\uFE0F",label:"Book a tee time",desc:"Public courses link straight to their booking page."},
     ],
   },
   {
