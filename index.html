@@ -6239,6 +6239,13 @@ function SettingsView({settings,onUpdate,onBack,profile,onUpdateProfile,onSetHom
 ═══════════════════════════════════════════════════════════ */
 function ProfileTab({statuses,ratings,profile,onOpenSettings,onGoToTab,onSelect,friends,followers:appFollowers,onViewFriend,onRequestCourse,pendingRequests,onQuickLog,onOpenBatchEntry,onOpenHandicapEntry,autoOpenList,onConsumeAutoOpenList}){
   const played=COURSES.filter(c=>statuses[c.id]?.play==="played");const want=COURSES.filter(c=>statuses[c.id]?.play==="want");
+  /* Played stat counts each sub-course separately (Bethpage with 4 played subs = 4),
+     so the number on Profile reflects what users feel they've actually played. */
+  const playedExpandedCount=played.reduce((sum,c)=>{
+    const r=ratings[c.id];
+    if(c.subcourses&&r?.allSubs&&Object.keys(r.allSubs).length)return sum+Object.keys(r.allSubs).length;
+    return sum+1;
+  },0);
   const rounds=useMemo(()=>getRoundsFromRatings(ratings,profile?.ghinRounds),[ratings,profile?.ghinRounds]);
   const handicapInfo=useMemo(()=>resolveHandicap(rounds,profile),[rounds,profile?.selfReportedHandicap,profile?.selfReportedAt]);
   const handicap=handicapInfo.value;
@@ -6353,7 +6360,7 @@ function ProfileTab({statuses,ratings,profile,onOpenSettings,onGoToTab,onSelect,
       {[
         [followers.length,"Followers",()=>setShowList("followers")],
         [following.length,"Following",()=>setShowList("following")],
-        [played.length,"Played",()=>onGoToTab&&onGoToTab("mycourses","played")],
+        [playedExpandedCount,"Played",()=>onGoToTab&&onGoToTab("mycourses","played")],
         [want.length,"Bucket List",()=>onGoToTab&&onGoToTab("mycourses","want")],
       ].map(([vl,lb,onClick])=>(
         <button key={lb} className="pressable" onClick={onClick} style={{background:"none",border:"none",cursor:"pointer",textAlign:"center",padding:0,fontFamily:"var(--font-display)"}}>
@@ -6565,15 +6572,32 @@ function ProfileTab({statuses,ratings,profile,onOpenSettings,onGoToTab,onSelect,
           </div>
         </div>
       </div>);})()}
-    {played.length>0?<div className="fade-up">
+    {played.length>0?(()=>{
+      /* Expand sub-courses into separate ranking entries so a multi-course
+         property like Bethpage shows each sub (Black, Red, etc.) ranked on
+         its own merit, not a rolled-up average. */
+      const rankUnits=[];
+      played.forEach(c=>{
+        const r=ratings[c.id];
+        if(c.subcourses&&r?.allSubs&&Object.keys(r.allSubs).length){
+          Object.entries(r.allSubs).forEach(([subName,sub])=>{
+            rankUnits.push({course:c,subName,score:sub.overall,key:c.id+":"+subName});
+          });
+        }else if(r?.overall!=null){
+          rankUnits.push({course:c,subName:null,score:r.overall,key:String(c.id)});
+        }
+      });
+      rankUnits.sort((a,b)=>(b.score??0)-(a.score??0));
+      const top=rankUnits.slice(0,5);
+      return(<div className="fade-up">
       <div style={{fontSize:10,fontWeight:700,color:"var(--c-muted)",letterSpacing:1,textTransform:"uppercase",marginBottom:12}}>Rankings</div>
-      {[...played].sort((a,b)=>(ratings[b.id]?.overall??0)-(ratings[a.id]?.overall??0)).slice(0,5).map((c,i)=>(
-        <div key={c.id} className="pressable" onClick={()=>onSelect&&onSelect(c)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:i<Math.min(played.length,5)-1?"1px solid var(--c-border)":"none",cursor:"pointer"}}>
+      {top.map((u,i)=>(
+        <div key={u.key} className="pressable" onClick={()=>onSelect&&onSelect(u.course)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:i<top.length-1?"1px solid var(--c-border)":"none",cursor:"pointer"}}>
           <span style={{fontSize:11,fontWeight:700,color:"var(--c-muted)",width:20,flexShrink:0,textAlign:"right"}}>#{i+1}</span>
-          <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600,fontSize:13}}>{c.name}</div><div style={{color:"var(--c-muted)",fontSize:11,marginTop:1}}>{c.city}, {c.state}</div></div>
-          {ratings[c.id]?<ScorePill score={ratings[c.id].overall}/>:<span style={{color:"var(--c-muted)",fontSize:12}}>{"\u2014"}</span>}
+          <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600,fontSize:13}}>{u.course.name}{u.subName?` — ${u.subName}`:""}</div><div style={{color:"var(--c-muted)",fontSize:11,marginTop:1}}>{u.course.city}, {u.course.state}</div></div>
+          <ScorePill score={u.score}/>
         </div>))}
-    </div>:<div className="fade-up" style={{textAlign:"center",padding:"36px 20px 10px",color:"var(--c-muted)"}}>
+    </div>);})():<div className="fade-up" style={{textAlign:"center",padding:"36px 20px 10px",color:"var(--c-muted)"}}>
       <div style={{fontSize:36,marginBottom:10}}>⛳</div>
       <div style={{fontWeight:500,fontFamily:"var(--font-display)",color:"var(--c-text)",fontSize:20,marginBottom:6}}>Start your golf journal</div>
       <div style={{fontSize:12,lineHeight:1.5,marginBottom:18,maxWidth:260,marginLeft:"auto",marginRight:"auto"}}>Rate a course to begin ranking your rounds and track your personal bests over time.</div>
@@ -8034,7 +8058,12 @@ function App(){
         const existingPlayCount=p[id]?.playCount||0;
         return{...p,[id]:{...r,playCount:Math.max(existingPlayCount,enrichedSub.playCount),overall:Math.round(avg*10)/10,allSubs}};
       }
-      return{...p,[id]:enrichedTopLevel};
+      /* CRITICAL: when this course already has sub-course ratings, preserve them
+         on the new top-level write. Without this, rating the parent course of a
+         multi-course property (Bethpage, Bandon, Pinehurst) wipes all per-sub
+         ratings from local state until the next reload. */
+      const existingAllSubs=p[id]?.allSubs;
+      return{...p,[id]:existingAllSubs?{...enrichedTopLevel,allSubs:existingAllSubs}:enrichedTopLevel};
     });
     /* Persist the enriched rating to Supabase (one row per sub_name; sub_name=null for single-course props).
        Both writes awaited so we can roll back local state if either fails. _dbFail
