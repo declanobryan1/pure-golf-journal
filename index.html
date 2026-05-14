@@ -4170,7 +4170,7 @@ function CourseDetail({course,statuses,ratings,friends,profile,onBack,onSetStatu
    the same view they left — not a reset Discover. Module-level cache survives
    DiscoverTab unmount/remount as long as the user doesn't switch tabs. */
 const DISCOVER_SCROLL={pos:0,returning:false,q:"",tf:null,pf:null,sf:null,cf:null};
-function DiscoverTab({statuses,ratings,onSelect,focusSearch,onFocusConsumed,scrollToTopNonce,profile,onRequestCourse}){
+function DiscoverTab({statuses,ratings,onSelect,focusSearch,onFocusConsumed,scrollToTopNonce,profile,onRequestCourse,coursePreviews}){
   const isReturning=DISCOVER_SCROLL.returning;
   useEffect(()=>{DISCOVER_SCROLL.returning=false;},[]);
   /* Initialize from the module-level cache so a back-from-detail navigation
@@ -4297,7 +4297,7 @@ function DiscoverTab({statuses,ratings,onSelect,focusSearch,onFocusConsumed,scro
         return(<div key={c.id} className={isReturning?"pressable":"fade-up pressable"} onClick={()=>handleSelect(c)}
           style={{position:"relative",borderRadius:14,overflow:"hidden",cursor:"pointer",height:140,animationDelay:isReturning?undefined:i<8?`${i*30}ms`:"0ms",
             boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-          {c.img&&<SmartImg src={c.img} loading="lazy" alt="" style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",objectPosition:c.imgPos||"center 60%",transform:[c.imgRotate?`rotate(${c.imgRotate}deg)`:"",c.imgScale?`scale(${c.imgScale})`:(c.imgRotate?"scale(1.12)":"")].filter(Boolean).join(" ")||undefined}}/>}
+          {(coursePreviews?.[c.id]||c.img)&&<SmartImg src={coursePreviews?.[c.id]||c.img} loading="lazy" alt="" style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",objectPosition:coursePreviews?.[c.id]?"center":(c.imgPos||"center 60%"),transform:coursePreviews?.[c.id]?undefined:[c.imgRotate?`rotate(${c.imgRotate}deg)`:"",c.imgScale?`scale(${c.imgScale})`:(c.imgRotate?"scale(1.12)":"")].filter(Boolean).join(" ")||undefined}}/>}
           <div style={{position:"absolute",inset:0,background:"linear-gradient(to top,rgba(28,25,23,0.92) 0%,rgba(28,25,23,0.4) 50%,rgba(28,25,23,0.15) 100%)"}}/>
           <div style={{position:"relative",zIndex:1,height:"100%",padding:"14px 16px",display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
@@ -4344,7 +4344,7 @@ function DiscoverTab({statuses,ratings,onSelect,focusSearch,onFocusConsumed,scro
 /* ═══════════════════════════════════════════════════════════
    MY COURSES TAB
 ═══════════════════════════════════════════════════════════ */
-function MyCoursesTab({statuses,ratings,onSelect,subtab,setSubtab,onGoToTab}){
+function MyCoursesTab({statuses,ratings,onSelect,subtab,setSubtab,onGoToTab,coursePreviews}){
   const tab=subtab||"played";const setTab=setSubtab||(()=>{});
   const[q,setQ]=useState("");
   const filterBySearch=(arr)=>{if(!q.trim())return arr;const s=norm(q);return arr.filter(c=>norm(c.name).includes(s)||norm(c.city).includes(s)||norm(c.state).includes(s));};
@@ -4403,7 +4403,7 @@ function MyCoursesTab({statuses,ratings,onSelect,subtab,setSubtab,onGoToTab}){
       :played.map((e,i)=>{const c=e.course;const displayName=e.subName?`${cardName(c)} — ${e.subName}`:cardName(c);const r=getRank(e);const rankLabel=isTied(e)?`T-${r}`:`#${r}`;return(
         <div key={c.id+"-"+(e.subName||"main")} className="fade-up pressable" onClick={()=>onSelect(c)} style={{display:"flex",gap:12,padding:"12px 16px",borderBottom:"1px solid var(--c-border)",cursor:"pointer",animationDelay:`${i*35}ms`}}>
           <div style={{width:40,height:40,borderRadius:10,overflow:"hidden",flexShrink:0,position:"relative",background:"var(--c-surface)"}}>
-            {c.img&&<img src={c.img} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>}
+            {(coursePreviews?.[c.id]||c.img)&&<img src={coursePreviews?.[c.id]||c.img} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>}
             <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(28,25,23,0.5)",fontWeight:800,fontSize:isTied(e)?9:11,color:"#fff"}}>{rankLabel}</div>
           </div>
           <div style={{flex:1,minWidth:0}}>
@@ -4423,7 +4423,7 @@ function MyCoursesTab({statuses,ratings,onSelect,subtab,setSubtab,onGoToTab}){
         {!q&&<button type="button" className="pressable" onClick={()=>onGoToTab&&onGoToTab("discover")} style={{background:"var(--c-green)",color:"#fff",border:"none",borderRadius:10,padding:"10px 20px",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"var(--font-body)"}}>Browse Courses</button>}
       </div>
       :want.map((c,i)=>{const wantSubs=statuses[c.id]?.wantSubs;return(<div key={c.id} className="fade-up pressable" onClick={()=>onSelect(c)} style={{display:"flex",gap:12,padding:"12px 16px",borderBottom:"1px solid var(--c-border)",cursor:"pointer",animationDelay:`${i*35}ms`}}>
-        <div style={{width:40,height:40,borderRadius:10,overflow:"hidden",flexShrink:0,background:"var(--c-surface)"}}>{c.img&&<img src={c.img} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>}</div>
+        <div style={{width:40,height:40,borderRadius:10,overflow:"hidden",flexShrink:0,background:"var(--c-surface)"}}>{(coursePreviews?.[c.id]||c.img)&&<img src={coursePreviews?.[c.id]||c.img} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>}</div>
         <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600,fontSize:14,marginBottom:2}}>{c.name}</div><div style={{color:"var(--c-muted)",fontSize:11,marginBottom:4}}>{c.city}, {c.state}{wantSubs&&wantSubs.length>0&&<span style={{marginLeft:6,color:"var(--c-blue)",fontWeight:600}}>· {wantSubs.join(", ")}</span>}</div>
           <div style={{display:"flex",gap:4,flexWrap:"wrap"}}><Tag>{c.terrain}</Tag><Tag>{c.access}</Tag></div></div></div>);}))}
   </div>);
@@ -6761,7 +6761,7 @@ function ClubhouseActivityCard({item,rxKey,reactions,toggleEmoji,addComment,onSe
   );
 }
 
-function HomeTab({profile,statuses,ratings,friends,activity,onSelect,onGoToTab,reactions,toggleEmoji,addComment,baselineRemaining,baselineGoal,onViewFriend,sessionRandomFactId}){
+function HomeTab({profile,statuses,ratings,friends,activity,onSelect,onGoToTab,reactions,toggleEmoji,addComment,baselineRemaining,baselineGoal,onViewFriend,sessionRandomFactId,coursePreviews}){
   const[lightbox,setLightbox]=useState(null);
   const openLightbox=(photos,startIndex)=>setLightbox({photos,startIndex});
   const ratedIds=new Set(Object.keys(ratings).map(Number));
@@ -6897,7 +6897,7 @@ function HomeTab({profile,statuses,ratings,friends,activity,onSelect,onGoToTab,r
           <div key={c.id} className="fade-up pressable" onClick={()=>onSelect(c)}
             style={{position:"relative",borderRadius:12,overflow:"hidden",cursor:"pointer",height:100,animationDelay:`${i*40}ms`,
               boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-            {c.img&&<img src={c.img} alt="" style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",objectPosition:c.imgPos||"center 60%",transform:[c.imgRotate?`rotate(${c.imgRotate}deg)`:"",c.imgScale?`scale(${c.imgScale})`:(c.imgRotate?"scale(1.12)":"")].filter(Boolean).join(" ")||undefined}}/>}
+            {(coursePreviews?.[c.id]||c.img)&&<img src={coursePreviews?.[c.id]||c.img} alt="" style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",objectPosition:coursePreviews?.[c.id]?"center":(c.imgPos||"center 60%"),transform:coursePreviews?.[c.id]?undefined:[c.imgRotate?`rotate(${c.imgRotate}deg)`:"",c.imgScale?`scale(${c.imgScale})`:(c.imgRotate?"scale(1.12)":"")].filter(Boolean).join(" ")||undefined}}/>}
             <div style={{position:"absolute",inset:0,background:"linear-gradient(to right,rgba(28,25,23,0.88) 0%,rgba(28,25,23,0.4) 70%,rgba(28,25,23,0.2) 100%)"}}/>
             <div style={{position:"relative",zIndex:1,height:"100%",padding:"12px 14px",display:"flex",alignItems:"center",gap:12}}>
               <div style={{flex:1,minWidth:0}}>
@@ -7089,6 +7089,10 @@ function WelcomeTour({onClose,onDone}){
 function InstallPrompt(){
   const[show,setShow]=useState(false);
   useEffect(()=>{
+    /* Build 3 fix: never show "Add to Home Screen" prompt inside the native
+       Capacitor app — the app IS already installed. Was firing in TestFlight
+       and confusing testers. */
+    if(IS_NATIVE)return;
     const standalone=window.navigator.standalone||window.matchMedia("(display-mode: standalone)").matches;
     if(standalone)return;
     const ua=window.navigator.userAgent;
@@ -8419,9 +8423,9 @@ function App(){
           else setViewFriend(null);
         }} onSelectCourse={c=>{setNavStack(s=>[...s,{type:"friend",friend:viewFriend}]);setViewFriend(null);setCourse(c);}} friends={friends} onViewFriend={f=>{setNavStack(s=>[...s,{type:"friend",friend:viewFriend}]);setViewFriend(f);}} myStatuses={statuses} isFriend={friends.some(f=>f.id===viewFriend.id)} followsYou={followers.some(f=>f.id===viewFriend.id)} onAddFriend={addFriend} onRemoveFriend={removeFriend}/>
         :<>
-          {tab==="home"&&<HomeTab profile={profile} statuses={statuses} ratings={ratings} friends={friends} activity={activity} onSelect={setCourse} onGoToTab={goToTab} reactions={reactions} toggleEmoji={toggleEmoji} addComment={addComment} baselineRemaining={baselineRemaining} baselineGoal={BASELINE_GOAL} onViewFriend={f=>setViewFriend(f)} sessionRandomFactId={sessionRandomFactId}/>}
-          {tab==="discover"&&<DiscoverTab statuses={statuses} ratings={ratings} onSelect={setCourse} focusSearch={discoverFocusSearch} onFocusConsumed={()=>setDiscoverFocusSearch(false)} scrollToTopNonce={tabScrollNonce} profile={profile} onRequestCourse={handleRequestCourse}/>}
-          {tab==="mycourses"&&<MyCoursesTab statuses={statuses} ratings={ratings} onSelect={setCourse} subtab={mcSubtab} setSubtab={setMcSubtab} onGoToTab={goToTab}/>}
+          {tab==="home"&&<HomeTab profile={profile} statuses={statuses} ratings={ratings} friends={friends} activity={activity} onSelect={setCourse} onGoToTab={goToTab} reactions={reactions} toggleEmoji={toggleEmoji} addComment={addComment} baselineRemaining={baselineRemaining} baselineGoal={BASELINE_GOAL} onViewFriend={f=>setViewFriend(f)} sessionRandomFactId={sessionRandomFactId} coursePreviews={coursePreviews}/>}
+          {tab==="discover"&&<DiscoverTab statuses={statuses} ratings={ratings} onSelect={setCourse} focusSearch={discoverFocusSearch} onFocusConsumed={()=>setDiscoverFocusSearch(false)} scrollToTopNonce={tabScrollNonce} profile={profile} onRequestCourse={handleRequestCourse} coursePreviews={coursePreviews}/>}
+          {tab==="mycourses"&&<MyCoursesTab statuses={statuses} ratings={ratings} onSelect={setCourse} subtab={mcSubtab} setSubtab={setMcSubtab} onGoToTab={goToTab} coursePreviews={coursePreviews}/>}
           {tab==="friends"&&<FriendsTab friends={friends} followers={followers} activity={activity} onAddFriend={addFriend} onViewFriend={f=>{setViewFriend(f);}} onSelectCourse={setCourse} reactions={reactions} toggleEmoji={toggleEmoji} addComment={addComment} myUid={session?.user?.id}/>}
           {tab==="profile"&&<ProfileTab statuses={statuses} ratings={ratings} profile={profile} onOpenSettings={target=>setShowSettings(typeof target==="string"?target:true)} onGoToTab={goToTab} onSelect={setCourse} friends={friends} followers={followers} onViewFriend={f=>setViewFriend(f)} onRequestCourse={handleRequestCourse} pendingRequests={pendingRequests} onQuickLog={()=>setQuickLog({})} onOpenBatchEntry={openBatchEntry} onOpenHandicapEntry={openHandicapEntry} autoOpenList={profileAutoOpenList} onConsumeAutoOpenList={()=>setProfileAutoOpenList(null)}/>}
         </>}
@@ -8513,9 +8517,23 @@ function App(){
       )}
       {refineState.showPrompt&&(()=>{
         const stage=refineState.promptStage;
+        /* Filter earlyRefs to only courses still in COURSES — if every ref is
+           missing, suppress the prompt entirely so the user doesn't tap "Refine
+           Now" only to have it silently close (the original bug). */
+        const validRefs=refineState.earlyRefs.filter(ref=>COURSES.some(c=>c.id===ref.courseId));
+        if(!validRefs.length){
+          /* Quietly mark prompt done so we don't pop again. */
+          setTimeout(()=>setRefineState(rs=>({...rs,showPrompt:false,promptStage:"done",earlyRefs:[]})),0);
+          return null;
+        }
         const dismiss=()=>setRefineState(rs=>({...rs,showPrompt:false,promptStage:stage==="pending-15"?"pending-20":"done"}));
-        const start=()=>{setRefineState(rs=>({...rs,showPrompt:false}));setRefineFlow({index:0});};
-        const count=refineState.earlyRefs.length;
+        const start=()=>{
+          /* Use the filtered list when starting so the flow doesn't loop on
+             missing courses. Replace earlyRefs with the valid subset. */
+          setRefineState(rs=>({...rs,showPrompt:false,earlyRefs:validRefs}));
+          setRefineFlow({index:0});
+        };
+        const count=validRefs.length;
         return(
         <div onClick={dismiss} style={{position:"absolute",inset:0,background:"rgba(28,25,23,0.65)",zIndex:90,display:"flex",alignItems:"center",justifyContent:"center",padding:20,animation:"fadeIn 200ms var(--ease-out)"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"var(--c-bg)",borderRadius:"20px 20px 0 0",padding:"22px 22px calc(env(safe-area-inset-bottom, 0px) + 24px)",maxWidth:420,width:"100%",boxShadow:"0 -4px 40px rgba(0,0,0,0.18)",borderTop:"1px solid var(--c-border)",animation:"slideUp 300ms var(--ease-out)",maxHeight:"92dvh",overflowY:"auto",touchAction:"pan-y"}}>
@@ -8727,37 +8745,49 @@ function App(){
           </div>
         </div>
       ),document.body)}
-      {handicapToast&&!ratePrompt&&!showBaselineDone&&!showBaselineIntro&&!showWelcomeTour&&ReactDOM.createPortal((
-        <div style={{position:"fixed",left:"50%",bottom:"calc(env(safe-area-inset-bottom, 0px) + 88px)",transform:"translateX(-50%)",zIndex:200,pointerEvents:"none",animation:"slideUp 300ms var(--ease-out)"}}>
-          <div style={{background:"var(--c-green)",color:"#fff",borderRadius:999,padding:"11px 18px",fontFamily:"var(--font-body)",boxShadow:"0 10px 28px rgba(21,128,61,0.35)",display:"flex",alignItems:"center",gap:10,whiteSpace:"nowrap"}}>
-            {handicapToast.value!=null?<>
-              <span style={{fontSize:12,fontWeight:600,letterSpacing:0.3,opacity:0.85,textTransform:"uppercase"}}>Handicap</span>
-              <span style={{fontSize:17,fontWeight:700,fontFamily:"var(--font-display)",color:"#fff",letterSpacing:-0.3}}>{handicapToast.value<0?"+"+Math.abs(handicapToast.value).toFixed(1):handicapToast.value.toFixed(1)}</span>
-              <span style={{fontSize:11,opacity:0.8}}>updated</span>
-            </>:<>
-              <span style={{fontSize:13,fontWeight:600}}>Round saved</span>
-              <span style={{fontSize:11,opacity:0.85}}>· {handicapToast.needed} more for your handicap</span>
-            </>}
-          </div>
-        </div>
-      ),document.body)}
-      {dbErrorToast&&ReactDOM.createPortal((
-        <div style={{position:"fixed",left:"50%",bottom:"calc(env(safe-area-inset-bottom, 0px) + 88px)",transform:"translateX(-50%)",zIndex:201,pointerEvents:"auto",animation:"slideUp 300ms var(--ease-out)",maxWidth:"calc(100% - 32px)"}}>
-          <div style={{background:"#7f1d1d",color:"#fff",borderRadius:14,padding:"12px 16px",fontFamily:"var(--font-body)",boxShadow:"0 10px 28px rgba(127,29,29,0.35)",display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:16}}>⚠</span>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:13,fontWeight:700,lineHeight:1.3}}>Couldn't save your changes</div>
-              <div style={{fontSize:11,opacity:0.85,marginTop:2,lineHeight:1.4}}>Check your connection and try again.</div>
+      {/* Bottom toasts: outer div handles position + horizontal centering;
+         inner div handles slide-up animation. This prevents the slideUp
+         keyframe transform from clobbering the translateX(-50%) centering
+         (which made the toast appear to "swing in from the right"). Also
+         gated so no two toasts overlap visually — priority order:
+         ratePrompt > dbErrorToast > isOffline > handicapToast. */}
+      {handicapToast&&!ratePrompt&&!dbErrorToast&&!isOffline&&!showBaselineDone&&!showBaselineIntro&&!showWelcomeTour&&ReactDOM.createPortal((
+        <div style={{position:"fixed",left:0,right:0,bottom:"calc(env(safe-area-inset-bottom, 0px) + 88px)",zIndex:200,display:"flex",justifyContent:"center",pointerEvents:"none"}}>
+          <div style={{animation:"slideUp 300ms var(--ease-out)",pointerEvents:"none"}}>
+            <div style={{background:"var(--c-green)",color:"#fff",borderRadius:999,padding:"11px 18px",fontFamily:"var(--font-body)",boxShadow:"0 10px 28px rgba(21,128,61,0.35)",display:"flex",alignItems:"center",gap:10,whiteSpace:"nowrap"}}>
+              {handicapToast.value!=null?<>
+                <span style={{fontSize:12,fontWeight:600,letterSpacing:0.3,opacity:0.85,textTransform:"uppercase"}}>Handicap</span>
+                <span style={{fontSize:17,fontWeight:700,fontFamily:"var(--font-display)",color:"#fff",letterSpacing:-0.3}}>{handicapToast.value<0?"+"+Math.abs(handicapToast.value).toFixed(1):handicapToast.value.toFixed(1)}</span>
+                <span style={{fontSize:11,opacity:0.8}}>updated</span>
+              </>:<>
+                <span style={{fontSize:13,fontWeight:600}}>Round saved</span>
+                <span style={{fontSize:11,opacity:0.85}}>· {handicapToast.needed} more for your handicap</span>
+              </>}
             </div>
-            <button type="button" onClick={()=>setDbErrorToast(null)} style={{background:"transparent",border:"none",color:"#fff",fontSize:16,opacity:0.7,cursor:"pointer",padding:"4px 6px",fontWeight:700}} aria-label="Dismiss">{"\u2715"}</button>
           </div>
         </div>
       ),document.body)}
-      {isOffline&&ReactDOM.createPortal((
-        <div style={{position:"fixed",left:"50%",transform:"translateX(-50%)",bottom:"calc(env(safe-area-inset-bottom, 0px) + 76px)",zIndex:199,pointerEvents:"auto",animation:"slideUp 300ms var(--ease-out)",maxWidth:"calc(100% - 32px)"}}>
-          <div style={{background:"#7f1d1d",color:"#fff",borderRadius:14,padding:"10px 16px",fontSize:12,fontWeight:700,fontFamily:"var(--font-body)",letterSpacing:0.2,boxShadow:"0 10px 28px rgba(127,29,29,0.35)",display:"flex",alignItems:"center",gap:8,whiteSpace:"nowrap"}}>
-            <span style={{fontSize:14}}>⚠</span>
-            <span>You're offline — changes won't save</span>
+      {dbErrorToast&&!ratePrompt&&ReactDOM.createPortal((
+        <div style={{position:"fixed",left:0,right:0,bottom:"calc(env(safe-area-inset-bottom, 0px) + 88px)",zIndex:201,display:"flex",justifyContent:"center",padding:"0 16px",pointerEvents:"none"}}>
+          <div style={{animation:"slideUp 300ms var(--ease-out)",pointerEvents:"auto",maxWidth:"calc(100% - 32px)"}}>
+            <div style={{background:"#7f1d1d",color:"#fff",borderRadius:14,padding:"12px 16px",fontFamily:"var(--font-body)",boxShadow:"0 10px 28px rgba(127,29,29,0.35)",display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:16}}>⚠</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:700,lineHeight:1.3}}>Couldn't save your changes</div>
+                <div style={{fontSize:11,opacity:0.85,marginTop:2,lineHeight:1.4}}>Check your connection and try again.</div>
+              </div>
+              <button type="button" onClick={()=>setDbErrorToast(null)} style={{background:"transparent",border:"none",color:"#fff",fontSize:16,opacity:0.7,cursor:"pointer",padding:"4px 6px",fontWeight:700}} aria-label="Dismiss">{"\u2715"}</button>
+            </div>
+          </div>
+        </div>
+      ),document.body)}
+      {isOffline&&!ratePrompt&&!dbErrorToast&&ReactDOM.createPortal((
+        <div style={{position:"fixed",left:0,right:0,bottom:"calc(env(safe-area-inset-bottom, 0px) + 76px)",zIndex:199,display:"flex",justifyContent:"center",padding:"0 16px",pointerEvents:"none"}}>
+          <div style={{animation:"slideUp 300ms var(--ease-out)",pointerEvents:"auto",maxWidth:"calc(100% - 32px)"}}>
+            <div style={{background:"#7f1d1d",color:"#fff",borderRadius:14,padding:"10px 16px",fontSize:12,fontWeight:700,fontFamily:"var(--font-body)",letterSpacing:0.2,boxShadow:"0 10px 28px rgba(127,29,29,0.35)",display:"flex",alignItems:"center",gap:8,whiteSpace:"nowrap"}}>
+              <span style={{fontSize:14}}>⚠</span>
+              <span>You're offline — changes won't save</span>
+            </div>
           </div>
         </div>
       ),document.body)}
