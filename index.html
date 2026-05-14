@@ -2200,7 +2200,7 @@ function QuickLogModal({initialCourse,ratedCourses,friends,userTees,onSave,onClo
             </div>
           ):(<>
             <input value={courseSearch} onChange={e=>setCourseSearch(e.target.value)} placeholder="Search any course..." style={{width:"100%",background:"var(--c-card)",border:"1px solid var(--c-border)",borderRadius:10,padding:"11px 12px",fontSize:14,fontFamily:"var(--font-body)",boxSizing:"border-box",outline:"none",color:"var(--c-text)",marginBottom:8}}/>
-            <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:240,overflowY:"auto"}}>
+            <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:240,overflowY:"auto",WebkitOverflowScrolling:"touch",overscrollBehavior:"contain",touchAction:"pan-y"}}>
               {filteredCourses.length===0?(
                 /* Empty state. When the user has typed a query and we have no matches,
                    surface a "Request & log this round" CTA — fires the course request AND
@@ -2277,7 +2277,7 @@ function QuickLogModal({initialCourse,ratedCourses,friends,userTees,onSave,onClo
                 border:`1px solid ${sel?"var(--c-green-border)":"var(--c-border)"}`,
                 background:sel?"var(--c-green-dim)":"var(--c-card)",cursor:"pointer",
                 fontFamily:"var(--font-body)",transition:"background 180ms var(--ease-out),border-color 180ms var(--ease-out)"}}>
-                <Avatar name={f.name} initials={f.initials} color={f.color} size={20} photo={f.profilePhoto}/>
+                <Avatar name={f.name} initials={f.initials} color={f.color} size={20} photo={f.profilePhoto} photoPos={f.profilePhotoPos}/>
                 <span style={{fontSize:12,fontWeight:600,color:sel?"var(--c-green)":"var(--c-text)"}}>{f.name.split(" ")[0]}</span>
                 {sel&&<span style={{fontSize:10,color:"var(--c-green)",fontWeight:700}}>{"\u2713"}</span>}
               </button>);})}
@@ -2892,7 +2892,7 @@ function RoundFields({note,setNote,date,setDate,shotScore,setShotScore,photos,se
             border:`1px solid ${sel?"var(--c-green)":"var(--c-border)"}`,background:sel?"var(--c-green-dim)":"var(--c-card)",
             cursor:"pointer",fontFamily:"var(--font-body)",fontSize:12,fontWeight:sel?600:500,color:sel?"var(--c-green)":"var(--c-sub)",
             transition:"all 180ms var(--ease-out)"}}>
-            <Avatar name={f.name} initials={f.initials} color={f.color} size={20}/>
+            <Avatar name={f.name} initials={f.initials} color={f.color} size={20} photo={f.profilePhoto} photoPos={f.profilePhotoPos}/>
             {f.name.split(" ")[0]}
             {sel&&<span style={{fontSize:10,fontWeight:800}}>{"\u2713"}</span>}
           </button>);})}
@@ -6921,6 +6921,13 @@ function HomeTab({profile,statuses,ratings,friends,activity,onSelect,onGoToTab,r
   const openLightbox=(photos,startIndex)=>setLightbox({photos,startIndex});
   const ratedIds=new Set(Object.keys(ratings).map(Number));
   const played=COURSES.filter(c=>statuses[c.id]?.play==="played");
+  /* Sub-aware played count: each rated sub-course counts separately
+     (Bethpage with 4 played subs = 4, not 1). Matches Profile + MyCourses. */
+  const playedExpandedCount=played.reduce((sum,c)=>{
+    const r=ratings[c.id];
+    if(c.subcourses&&r?.allSubs&&Object.keys(r.allSubs).length)return sum+Object.keys(r.allSubs).length;
+    return sum+1;
+  },0);
   const scores=Object.values(ratings).map(r=>r.overall);
   const showMap=ratedIds.size>1;
   const homeCourse=COURSES.find(c=>c.id===profile.homeCourseId);
@@ -7000,7 +7007,7 @@ function HomeTab({profile,statuses,ratings,friends,activity,onSelect,onGoToTab,r
     <button className="pressable fade-up" onClick={()=>onGoToTab&&onGoToTab("mycourses","played")} style={{width:"100%",background:"var(--c-card)",border:"1px solid var(--c-border)",borderRadius:12,padding:"16px 18px",marginBottom:20,display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",fontFamily:"var(--font-body)",textAlign:"left"}}>
       <div>
         <div style={{fontSize:9,color:"var(--c-muted)",fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Courses Played</div>
-        <div style={{fontSize:26,fontWeight:300,fontFamily:"var(--font-display)",color:"var(--c-green)",letterSpacing:-0.5,lineHeight:1}}>{played.length}</div>
+        <div style={{fontSize:26,fontWeight:300,fontFamily:"var(--font-display)",color:"var(--c-green)",letterSpacing:-0.5,lineHeight:1}}>{playedExpandedCount}</div>
       </div>
       <div style={{display:"flex",alignItems:"center",gap:6,color:"var(--c-green)",fontSize:12,fontWeight:600}}>
         View all
@@ -8948,7 +8955,7 @@ function App(){
          (which made the toast appear to "swing in from the right"). Also
          gated so no two toasts overlap visually — priority order:
          ratePrompt > dbErrorToast > isOffline > handicapToast. */}
-      {handicapToast&&!ratePrompt&&!dbErrorToast&&!isOffline&&!showBaselineDone&&!showBaselineIntro&&!showWelcomeTour&&ReactDOM.createPortal((
+      {handicapToast&&!ratePrompt&&!dbErrorToast&&!isOffline&&!quickLogToast&&!showBaselineDone&&!showBaselineIntro&&!showWelcomeTour&&ReactDOM.createPortal((
         <div style={{position:"fixed",left:0,right:0,bottom:"calc(env(safe-area-inset-bottom, 0px) + 88px)",zIndex:200,display:"flex",justifyContent:"center",pointerEvents:"none"}}>
           <div style={{animation:"slideUp 300ms var(--ease-out)",pointerEvents:"none"}}>
             <div style={{background:"var(--c-green)",color:"#fff",borderRadius:999,padding:"11px 18px",fontFamily:"var(--font-body)",boxShadow:"0 10px 28px rgba(21,128,61,0.35)",display:"flex",alignItems:"center",gap:10,whiteSpace:"nowrap"}}>
