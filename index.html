@@ -1912,7 +1912,7 @@ function shouldContinue(candidates,results){
   if(n===5)return width>0.6; // 6th only if really needed
   return false;
 }
-function calcScore(results){
+function calcScore(results,opts={}){
   let floor=1,ceil=10;const ties=[];results.forEach(r=>{const s=r.score;
   if(r.result==="win")floor=Math.max(floor,s);
   else if(r.result==="loss")ceil=Math.min(ceil,s);
@@ -1920,12 +1920,18 @@ function calcScore(results){
   if(floor>ceil){const m=(floor+ceil)/2;floor=m;ceil=m;}
   let score=(floor+ceil)/2;if(ties.length)score=(score+ties.reduce((a,b)=>a+b,0)/ties.length)/2;
   if(results.every(r=>r.result==="win"))score=Math.min(10,floor+.5);if(results.every(r=>r.result==="loss"))score=Math.max(1,ceil-.5);
-  /* Make 10.0 very hard to achieve — require many decisive wins against top courses */
-  if(score>=9.8){
+  /* Cap the top of the scale so 10.0 stays meaningful, BUT not so aggressive
+     that a calibrated user can't ever reach a 9.7+. Build 3 relax: 9.7 unlocks
+     at 3 total wins (any score). 9.8 needs 2 top wins (>=9.0). 9.9/10.0 need 3
+     top wins. Refine flow bypasses entirely — by then the user's scale is
+     calibrated and their gut should be trusted. */
+  if(opts.bypassCap)return Math.round(Math.max(1,Math.min(10,score))*10)/10;
+  if(score>=9.7){
     const wins=results.filter(r=>r.result==="win");
     const topWins=wins.filter(r=>r.score>=9.0);
-    if(topWins.length<3||wins.length<5)score=Math.min(score,9.7);
-    else if(topWins.length<4)score=Math.min(score,9.8);
+    if(wins.length<3)score=Math.min(score,9.7);
+    else if(topWins.length<2)score=Math.min(score,9.8);
+    else if(topWins.length<3)score=Math.min(score,9.9);
   }
   return Math.round(Math.max(1,Math.min(10,score))*10)/10;
 }
@@ -3652,7 +3658,7 @@ function BaselineRatingModal({course,targetSubName,onSave,onClose,friends,baseli
 /* ═══════════════════════════════════════════════════════════
    HEAD-TO-HEAD MODAL
 ═══════════════════════════════════════════════════════════ */
-function HeadToHeadModal({course,targetSubName,ratings,onComplete,onClose,friends,userTees}){
+function HeadToHeadModal({course,targetSubName,ratings,onComplete,onClose,friends,userTees,bypassCap}){
   const allCandidates=useMemo(()=>getCandidates(course,targetSubName,ratings),[]);
   const[candidates,setCandidates]=useState(allCandidates);
   const MIN_ROUNDS=Math.min(3,candidates.length);
@@ -3676,7 +3682,7 @@ function HeadToHeadModal({course,targetSubName,ratings,onComplete,onClose,friend
     setTimeout(()=>{const next=[...results,{...current,result:choice}];setResults(next);setChosen(null);setBusy(false);
       const keepGoing=shouldContinue(candidates,next);
       if(!keepGoing){
-        const h2hScore=calcScore(next);
+        const h2hScore=calcScore(next,{bypassCap});
         let adjScore=h2hScore;
         if(impression?.cap)adjScore=Math.min(adjScore,impression.cap);
         if(impression?.floor)adjScore=Math.max(adjScore,impression.floor);
@@ -6088,13 +6094,32 @@ function SettingsView({settings,onUpdate,onBack,profile,onUpdateProfile,onSetHom
                 </div>
                 <span style={{background:"var(--c-green-dim)",color:"var(--c-green)",border:"1px solid var(--c-green-border)",borderRadius:8,padding:"6px 12px",fontSize:11,fontWeight:700,fontFamily:"var(--font-body)",letterSpacing:0.3}}>Batch</span>
               </button>}
-              {onOpenHandicapEntry&&<button type="button" onClick={onOpenHandicapEntry} className="pressable" style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 16px",borderBottom:"1px solid var(--c-border)",background:"none",border:"none",cursor:"pointer",fontFamily:"var(--font-body)",textAlign:"left"}}>
-                <div style={{flex:1}}>
-                  <div style={{fontWeight:600,fontSize:14}}>Know your handicap?</div>
-                  <div style={{color:"var(--c-muted)",fontSize:11,marginTop:2,lineHeight:1.45}}>{profile?.selfReportedHandicap!=null?`Set to ${profile.selfReportedHandicap<0?"+"+Math.abs(profile.selfReportedHandicap):profile.selfReportedHandicap} · updates as you log rounds`:"Enter it directly — no rounds needed"}</div>
-                </div>
-                <span style={{background:"var(--c-card)",color:"var(--c-sub)",border:"1px solid var(--c-border)",borderRadius:8,padding:"6px 12px",fontSize:11,fontWeight:700,fontFamily:"var(--font-body)",letterSpacing:0.3}}>Enter</span>
-              </button>}
+              {onOpenHandicapEntry&&(()=>{
+                /* Build 3: show the LIVE blended handicap, not just the static
+                   self-reported number. Lets the user see how their rounds are
+                   actually shifting the value. Falls back to the original copy
+                   when no self-report exists. */
+                const self=profile?.selfReportedHandicap;
+                const fmt=(v)=>v<0?"+"+Math.abs(v).toFixed(1):v.toFixed(1);
+                let subtitle="Enter it directly — no rounds needed";
+                if(self!=null){
+                  const allRounds=getRoundsFromRatings(ratings||{},profile?.ghinRounds);
+                  const info=resolveHandicap(allRounds,profile);
+                  if(info.value!=null&&info.source!=="self"){
+                    subtitle=`Now ${fmt(info.value)} · started at ${fmt(self)}`;
+                  }else{
+                    subtitle=`Set to ${fmt(self)} · updates as you log rounds`;
+                  }
+                }
+                return(
+                <button type="button" onClick={onOpenHandicapEntry} className="pressable" style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 16px",borderBottom:"1px solid var(--c-border)",background:"none",border:"none",cursor:"pointer",fontFamily:"var(--font-body)",textAlign:"left"}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:600,fontSize:14}}>Know your handicap?</div>
+                    <div style={{color:"var(--c-muted)",fontSize:11,marginTop:2,lineHeight:1.45}}>{subtitle}</div>
+                  </div>
+                  <span style={{background:"var(--c-card)",color:"var(--c-sub)",border:"1px solid var(--c-border)",borderRadius:8,padding:"6px 12px",fontSize:11,fontWeight:700,fontFamily:"var(--font-body)",letterSpacing:0.3}}>Enter</span>
+                </button>);
+              })()}
               <div style={{display:"flex",borderBottom:(ghinResult||ghinError||(profile?.ghinRounds||[]).length>0)?"1px solid var(--c-border)":"none"}}>
                 <input ref={ghinInputRef} type="file" accept=".csv,text/csv" onChange={handleGhinImport} style={{display:"none"}}/>
                 <button type="button" onClick={()=>ghinInputRef.current?.click()} className="pressable" style={{flex:1,background:"none",border:"none",borderRight:"1px solid var(--c-border)",padding:"11px 12px",fontSize:11,fontWeight:600,color:"var(--c-sub)",cursor:"pointer",fontFamily:"var(--font-body)"}}>Upload CSV</button>
@@ -6523,13 +6548,26 @@ function ProfileTab({statuses,ratings,profile,onOpenSettings,onGoToTab,onSelect,
             {/* Know your handicap? — direct entry. Used to live only in Settings → Logging
                 but users were missing it; pulling it onto the Scores sheet so it's one tap
                 from where they're already looking at their handicap data. */}
-            {onOpenHandicapEntry&&<button type="button" className="pressable" onClick={onOpenHandicapEntry} style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 14px",background:"var(--c-card)",border:"1px solid var(--c-border)",borderRadius:10,cursor:"pointer",fontFamily:"var(--font-body)",textAlign:"left",marginBottom:16}}>
-              <div>
-                <div style={{fontWeight:600,fontSize:13}}>Know your handicap?</div>
-                <div style={{color:"var(--c-muted)",fontSize:11,marginTop:2,lineHeight:1.45}}>{profile?.selfReportedHandicap!=null?`Set to ${profile.selfReportedHandicap<0?"+"+Math.abs(profile.selfReportedHandicap):profile.selfReportedHandicap} · updates as you log rounds`:"Enter it directly — no rounds needed"}</div>
-              </div>
-              <span style={{background:"var(--c-card)",color:"var(--c-sub)",border:"1px solid var(--c-border)",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,fontFamily:"var(--font-body)",letterSpacing:0.3,flexShrink:0,marginLeft:10}}>Enter</span>
-            </button>}
+            {onOpenHandicapEntry&&(()=>{
+              const self=profile?.selfReportedHandicap;
+              const fmt=(v)=>v<0?"+"+Math.abs(v).toFixed(1):v.toFixed(1);
+              let subtitle="Enter it directly — no rounds needed";
+              if(self!=null){
+                if(handicapInfo?.value!=null&&handicapInfo.source!=="self"){
+                  subtitle=`Now ${fmt(handicapInfo.value)} · started at ${fmt(self)}`;
+                }else{
+                  subtitle=`Set to ${fmt(self)} · updates as you log rounds`;
+                }
+              }
+              return(
+              <button type="button" className="pressable" onClick={onOpenHandicapEntry} style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 14px",background:"var(--c-card)",border:"1px solid var(--c-border)",borderRadius:10,cursor:"pointer",fontFamily:"var(--font-body)",textAlign:"left",marginBottom:16}}>
+                <div>
+                  <div style={{fontWeight:600,fontSize:13}}>Know your handicap?</div>
+                  <div style={{color:"var(--c-muted)",fontSize:11,marginTop:2,lineHeight:1.45}}>{subtitle}</div>
+                </div>
+                <span style={{background:"var(--c-card)",color:"var(--c-sub)",border:"1px solid var(--c-border)",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,fontFamily:"var(--font-body)",letterSpacing:0.3,flexShrink:0,marginLeft:10}}>Enter</span>
+              </button>);
+            })()}
             {roundsList.map((x,i)=>{
               const requested=x.unmatched&&(pendingRequests||[]).some(r=>norm(r.courseName||"")===norm(x.courseName||""));
               const rowClickable=!!x.course;
@@ -8535,7 +8573,15 @@ function App(){
           setTimeout(()=>setRefineState(rs=>({...rs,showPrompt:false,promptStage:"done",earlyRefs:[]})),0);
           return null;
         }
-        const dismiss=()=>setRefineState(rs=>({...rs,showPrompt:false,promptStage:stage==="pending-15"?"pending-20":"done"}));
+        const dismiss=()=>{
+          setRefineState(rs=>({...rs,showPrompt:false,promptStage:stage==="pending-15"?"pending-20":"done"}));
+          /* On the second dismissal (the one that flips promptStage to 'done'),
+             surface a brief toast so the user knows refine didn't disappear —
+             they can still find it in Settings later. */
+          if(stage!=="pending-15"){
+            setHandicapToast({needed:0,ts:Date.now(),value:null,settingsHint:true});
+          }
+        };
         const start=()=>{
           /* Use the filtered list when starting so the flow doesn't loop on
              missing courses. Replace earlyRefs with the valid subset. */
@@ -8601,7 +8647,7 @@ function App(){
               <span>Refining {refineFlow.index+1} of {total}</span>
               <span style={{opacity:0.9}}>{refineCourse.name}{ref.subName?` — ${ref.subName}`:""}</span>
             </div>
-            <HeadToHeadModal key={`refine-${refineFlow.index}`} course={refineCourse} targetSubName={ref.subName||undefined} ratings={ratings} friends={friends} userTees={profile?.userTees}
+            <HeadToHeadModal key={`refine-${refineFlow.index}`} course={refineCourse} targetSubName={ref.subName||undefined} ratings={ratings} friends={friends} userTees={profile?.userTees} bypassCap={true}
               onComplete={r=>{saveRating(ref.courseId,{...r,...(ref.subName?{subcourse:ref.subName}:{})},{refine:true});advance();}}
               onClose={()=>{if(refineFlow.index>0)setRefineExitConfirm(true);else setRefineFlow(null);}}/>
           </div>
@@ -8764,7 +8810,9 @@ function App(){
         <div style={{position:"fixed",left:0,right:0,bottom:"calc(env(safe-area-inset-bottom, 0px) + 88px)",zIndex:200,display:"flex",justifyContent:"center",pointerEvents:"none"}}>
           <div style={{animation:"slideUp 300ms var(--ease-out)",pointerEvents:"none"}}>
             <div style={{background:"var(--c-green)",color:"#fff",borderRadius:999,padding:"11px 18px",fontFamily:"var(--font-body)",boxShadow:"0 10px 28px rgba(21,128,61,0.35)",display:"flex",alignItems:"center",gap:10,whiteSpace:"nowrap"}}>
-              {handicapToast.value!=null?<>
+              {handicapToast.settingsHint?<>
+                <span style={{fontSize:12,fontWeight:600}}>You can refine anytime from Settings.</span>
+              </>:handicapToast.value!=null?<>
                 <span style={{fontSize:12,fontWeight:600,letterSpacing:0.3,opacity:0.85,textTransform:"uppercase"}}>Handicap</span>
                 <span style={{fontSize:17,fontWeight:700,fontFamily:"var(--font-display)",color:"#fff",letterSpacing:-0.3}}>{handicapToast.value<0?"+"+Math.abs(handicapToast.value).toFixed(1):handicapToast.value.toFixed(1)}</span>
                 <span style={{fontSize:11,opacity:0.8}}>updated</span>
