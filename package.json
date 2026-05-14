@@ -5,18 +5,26 @@
   "description": "Pure Golf Journal — a golf course rating + scoring journal for iOS",
   "scripts": {
     "build": "./scripts/build-www.sh",
+    "prefetch-images": "node scripts/prefetch-remote-images.js",
     "cap:sync": "./scripts/build-www.sh && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 cap sync ios",
     "cap:open": "cap open ios",
     "cap:run": "./scripts/build-www.sh && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 cap run ios"
   },
   "dependencies": {
+    "@capacitor-community/contacts": "^6.1.1",
+    "@capacitor-community/media": "^7.0.1",
     "@capacitor/app": "^6.0.3",
     "@capacitor/browser": "^6.0.6",
     "@capacitor/core": "^6.1.2",
     "@capacitor/haptics": "^6.0.3",
-    "@capacitor/ios": "^6.1.2"
+    "@capacitor/ios": "^6.1.2",
+    "@capacitor/keyboard": "^6.0.4",
+    "@capacitor/push-notifications": "^6.0.5"
   },
   "devDependencies": {
+    "@babel/cli": "^7.28.6",
+    "@babel/core": "^7.29.0",
+    "@babel/preset-react": "^7.28.5",
     "@capacitor/cli": "^6.1.2"
   }
 }

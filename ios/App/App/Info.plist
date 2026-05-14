@@ -33,15 +33,6 @@
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>UISupportedInterfaceOrientations~ipad</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
@@ -55,6 +46,16 @@
 				<string>com.declanobryan.puregolfjournal</string>
 			</array>
 		</dict>
+	</array>
+	<key>NSContactsUsageDescription</key>
+	<string>Pure uses your contacts to help you find golf buddies who already use the app. Names are matched on-device — your contact list is never uploaded.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Pure saves your shareable rating cards to your camera roll so you can post them to Instagram, Messages, or anywhere else.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Pure may access your photo library so you can attach photos to your round logs and course ratings.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
 	</array>
 </dict>
 </plist>

@@ -15,8 +15,11 @@ OUT=www
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-# Core PWA files
-cp index.html "$OUT/"
+# Pre-fetch any new remote course images to images/courses/remote/, then precompile
+# index.html with the URL→local-path rewrites baked in. Keeps photos always-instant
+# inside the iOS app. The prefetch step is idempotent — only downloads new URLs.
+node scripts/prefetch-remote-images.js
+node scripts/precompile-babel.js
 cp manifest.json "$OUT/" 2>/dev/null || true
 
 # Icons (PWA + Apple touch + maskable)
@@ -34,10 +37,15 @@ cp golf-journal-cream.png "$OUT/" 2>/dev/null || true
 cp golf-journal-green.png "$OUT/" 2>/dev/null || true
 cp PURE_app_icon.png "$OUT/" 2>/dev/null || true
 
-# Course imagery — recursively copy images/ but exclude HEIC backups
+# Course imagery — recursively copy images/ but exclude HEIC backups AND the
+# images/courses/_original/ folder (full-resolution source files, only used by
+# scripts/prefetch-remote-images.js to regenerate downsized versions; never read
+# at runtime). Including them was bloating the iOS bundle by ~150MB and slowing
+# both app install and cold launch.
 mkdir -p "$OUT/images"
 cp -R images/* "$OUT/images/" 2>/dev/null || true
 find "$OUT/images" -name "*HEIC_backup*" -delete 2>/dev/null || true
+rm -rf "$OUT/images/courses/_original" 2>/dev/null || true
 
 # Capacitor runtime + plugin JS (for native iOS deep-linked OAuth).
 # These IIFEs register window.Capacitor and window.Capacitor.Plugins.* — we

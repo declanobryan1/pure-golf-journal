@@ -6,7 +6,17 @@
     "iosScheme": "puregolfjournal"
   },
   "ios": {
-    "contentInset": "always",
-    "limitsNavigationsToAppBoundDomains": false
+    "contentInset": "never",
+    "scrollEnabled": false,
+    "limitsNavigationsToAppBoundDomains": false,
+    "backgroundColor": "#FAF7F2"
+  },
+  "backgroundColor": "#FAF7F2",
+  "plugins": {
+    "Keyboard": {
+      "resize": "native",
+      "resizeOnFullScreen": true,
+      "style": "default"
+    }
   }
 }
