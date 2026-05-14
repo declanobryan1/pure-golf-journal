@@ -733,8 +733,14 @@ async function dbUnfollow(targetId){
 async function dbSearchUsers(query,excludeId){
   const q=(query||"").trim().replace(/^@/,"");
   if(q.length<2)return[];
+  /* Build 5 (security): sanitize input before interpolating into PostgREST
+     .or() filter. Stripping commas/parens/percent/underscore prevents the
+     filter syntax from being broken or hijacked by names with special chars
+     (e.g. a username "foo,bar" would split the filter). */
+  const safe=q.replace(/[%_,()*]/g,"").slice(0,40);
+  if(safe.length<2)return[];
   /* Search both username and name (display name). Limit 20 for snappy dropdowns. */
-  let req=supabase.from("users").select("id,username,name,profile_photo_url,profile_photo_pos").or(`username.ilike.%${q}%,name.ilike.%${q}%`).limit(20);
+  let req=supabase.from("users").select("id,username,name,profile_photo_url,profile_photo_pos").or(`username.ilike.%${safe}%,name.ilike.%${safe}%`).limit(20);
   if(excludeId)req=req.neq("id",excludeId);
   const{data,error}=await req;
   if(error){console.warn("users search failed:",error.message);return[];}
@@ -1927,18 +1933,19 @@ function calcScore(results,opts={}){
   if(floor>ceil){const m=(floor+ceil)/2;floor=m;ceil=m;}
   let score=(floor+ceil)/2;if(ties.length)score=(score+ties.reduce((a,b)=>a+b,0)/ties.length)/2;
   if(results.every(r=>r.result==="win"))score=Math.min(10,floor+.5);if(results.every(r=>r.result==="loss"))score=Math.max(1,ceil-.5);
-  /* Cap the top of the scale so 10.0 stays meaningful, BUT not so aggressive
-     that a calibrated user can't ever reach a 9.7+. Build 3 relax: 9.7 unlocks
-     at 3 total wins (any score). 9.8 needs 2 top wins (>=9.0). 9.9/10.0 need 3
-     top wins. Refine flow bypasses entirely — by then the user's scale is
-     calibrated and their gut should be trusted. */
+  /* Cap the top of the scale so 10.0 stays meaningful. Build 5 tighten:
+     build 3 relax was too generous (10.0 was reachable too easily). Now
+     9.7 needs 4 wins, 9.8 needs 2 top wins (>=9.0) AND 5 total wins,
+     9.9 needs 3 top wins, 10.0 needs 4 top wins + 6 total wins.
+     Refine flow bypasses entirely — by then the user's scale is calibrated. */
   if(opts.bypassCap)return Math.round(Math.max(1,Math.min(10,score))*10)/10;
   if(score>=9.7){
     const wins=results.filter(r=>r.result==="win");
     const topWins=wins.filter(r=>r.score>=9.0);
-    if(wins.length<3)score=Math.min(score,9.7);
-    else if(topWins.length<2)score=Math.min(score,9.8);
+    if(wins.length<4)score=Math.min(score,9.7);
+    else if(topWins.length<2||wins.length<5)score=Math.min(score,9.8);
     else if(topWins.length<3)score=Math.min(score,9.9);
+    else if(topWins.length<4||wins.length<6)score=Math.min(score,9.9);
   }
   return Math.round(Math.max(1,Math.min(10,score))*10)/10;
 }
@@ -3859,12 +3866,20 @@ function CourseDetail({course,statuses,ratings,friends,profile,onBack,onSetStatu
     </div>
     <div style={{padding:"16px 18px 24px"}}>
       {course.subcourses&&<div data-allow-horizontal style={{display:"flex",gap:6,marginBottom:14,overflowX:"auto",paddingBottom:2}}>
-        {course.subcourses.map((sc,i)=>{const active=selectedSub===i;return(
+        {course.subcourses.map((sc,i)=>{
+          const active=selectedSub===i;
+          /* Build 5: ★ indicator if user has this sub on their bucket-list
+             via per-sub wantSubs (data already saved, just never surfaced
+             on the chip until now). */
+          const wanted=(status.wantSubs||[]).includes(sc.name);
+          return(
           <button key={sc.name} className="pressable" onClick={()=>setSelectedSub(i)} style={{
             whiteSpace:"nowrap",padding:"7px 14px",borderRadius:20,border:`1px solid ${active?"var(--c-green-border)":"var(--c-border)"}`,
             cursor:"pointer",fontWeight:600,fontSize:12,fontFamily:"var(--font-body)",
             background:active?"var(--c-green-dim)":"var(--c-card)",color:active?"var(--c-green)":"var(--c-sub)",
-            transition:"all 200ms var(--ease-out)"}}>{sc.name}</button>);})}</div>}
+            transition:"all 200ms var(--ease-out)",display:"inline-flex",alignItems:"center",gap:4}}>
+              {wanted&&<span style={{color:"var(--c-blue)",fontSize:10}}>★</span>}{sc.name}
+            </button>);})}</div>}
       <div style={{display:"flex",gap:8,marginBottom:16}}>
         <button className="pressable" onClick={openRate} style={{flex:1,background:"var(--c-green)",color:"#fff",border:"none",borderRadius:12,padding:"13px",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"var(--font-body)"}}>{currentRating?(activeSub?"Re-rate "+activeSub.name:"Re-rate"):(activeSub?"Rate "+activeSub.name:"Rate Course")}</button>
         {currentRating&&onQuickLog&&<button className="pressable" onClick={onQuickLog} style={{flex:1,background:"var(--c-card)",color:"var(--c-green)",border:"1px solid var(--c-green-border)",borderRadius:12,padding:"13px",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"var(--font-body)"}}>+ Score</button>}
@@ -4094,9 +4109,12 @@ function CourseDetail({course,statuses,ratings,friends,profile,onBack,onSetStatu
             <div style={{fontSize:10,color:"var(--c-muted)",fontWeight:500}}>{items.length}</div>
           </div>
           {coursePreview&&(()=>{const owner=items.find(x=>x.src===coursePreview);const label=owner?(owner.mine?"your photo":`${owner.by.split(" ")[0]}'s photo`):"a selected photo";return(
-          <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:"var(--c-green-dim)",border:"1px solid var(--c-green-border)",borderRadius:10,marginBottom:10,fontSize:11}}>
-            <span style={{color:"var(--c-green)",fontWeight:600}}>★ Using {label} as the course preview</span>
-            <button type="button" className="pressable" onClick={onClearCoursePreview} style={{marginLeft:"auto",background:"transparent",border:"none",color:"var(--c-green)",fontSize:11,fontWeight:600,cursor:"pointer",padding:"2px 4px"}}>Reset</button>
+          <div style={{padding:"8px 12px",background:"var(--c-green-dim)",border:"1px solid var(--c-green-border)",borderRadius:10,marginBottom:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11}}>
+              <span style={{color:"var(--c-green)",fontWeight:600}}>★ Using {label} as the course preview</span>
+              <button type="button" className="pressable" onClick={onClearCoursePreview} style={{marginLeft:"auto",background:"transparent",border:"none",color:"var(--c-green)",fontSize:11,fontWeight:600,cursor:"pointer",padding:"2px 4px"}}>Reset</button>
+            </div>
+            <div style={{fontSize:10,color:"var(--c-muted)",marginTop:3,fontStyle:"italic"}}>Visible to you on this device only.</div>
           </div>);})()}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
             {items.map((p,i)=>{
@@ -4680,7 +4698,10 @@ function FriendsTab({friends,followers=[],activity:activityFromProps,onAddFriend
         <div style={{textAlign:"center",padding:"40px 20px",color:"var(--c-muted)",fontSize:12}}>No friends match "{friendQuery}"</div>
       :filteredFriends.map((f,i)=>{
         /* Played count expands sub-courses (Bethpage 4 subs = 4 played) so this
-           matches what users see on their own profile. */
+           matches what users see on their own profile. Data hasn't loaded yet
+           when both ratings and played are empty (initial mount before tertiary
+           hydration finishes) — show a skeleton placeholder instead of "0". */
+        const dataLoaded=Object.keys(f.ratings||{}).length>0||(f.played||[]).length>0;
         const ct=(f.played||[]).reduce((sum,cid)=>{
           const c=COURSES.find(x=>x.id===cid);
           const r=f.ratings?.[cid];
@@ -4698,8 +4719,10 @@ function FriendsTab({friends,followers=[],activity:activityFromProps,onAddFriend
               <div style={{fontWeight:600,fontSize:14,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}{f.username&&<span style={{color:"var(--c-muted)",fontWeight:500,fontSize:12,marginLeft:6}}>@{f.username}</span>}</div>
               <div style={{fontSize:11,color:"var(--c-muted)"}}>
                 {homeCourse?<span>🏠 {homeCourse.name.split(" Golf")[0].split(" Country")[0]} · </span>:null}
-                <span>{ct} courses played</span>
-                {lastCourse&&<span> · Last played {lastCourse.name.split(" ")[0]}...</span>}
+                {dataLoaded
+                  ?<><span>{ct} courses played</span>{lastCourse&&<span> · Last played {lastCourse.name.split(" ")[0]}...</span>}</>
+                  :<span className="pure-skel" style={{display:"inline-block",width:90,height:11,verticalAlign:"middle",borderRadius:4}}/>
+                }
               </div>
             </div>
             <div style={{color:"var(--c-muted)",fontSize:14,alignSelf:"center"}}>{"\u203A"}</div>
@@ -8288,9 +8311,11 @@ function App(){
        a saved rating that doesn't exist on the server. */
     const prevRatings=ratings;
     const prevStatuses=statuses;
-    /* Unit count BEFORE this save decides if it's among the first 5 */
+    /* Unit count BEFORE this save decides if it's among the first 7 (build 5
+       widened from 5 to 7 — calibration takes more samples than the original
+       baseline thought; refine prompt at 15 still fires on these). */
     const prevUnitsCount=getRatedUnits(ratings).length;
-    const isEarly=!isRefine&&(prevUnitsCount===3||prevUnitsCount===4);
+    const isEarly=!isRefine&&prevUnitsCount>=3&&prevUnitsCount<=6;
     /* Analytics: capture the milestone the first time the user rates anything. Helps
        us see funnel dropoff between signup and first rating during TestFlight. */
     if(!isRefine&&prevUnitsCount===0)trackEvent("first_rating",{courseId:id});
@@ -8802,17 +8827,41 @@ function App(){
           </div>
         );
       })()}
-      {refineExitConfirm&&refineFlow&&(
-        <div onClick={()=>setRefineExitConfirm(false)} style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.72)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"fadeIn 200ms var(--ease-out)"}}>
+      {refineExitConfirm&&refineFlow&&(()=>{
+        /* Build 5: handlers extracted into named functions so the JSX is
+           clearer and we know exactly what each path does. The previous
+           version was reportedly trapping users in a loop — likely the
+           backdrop tap reading as "Keep going" without dismissing the
+           confirm. Now backdrop tap = Keep going (matches button) AND
+           the Pause button explicitly does both DB persist + state reset. */
+        const onPause=()=>{
+          /* Pause: persist current index so user can resume later. */
+          setRefineFlow(null);
+          setRefineExitConfirm(false);
+          setRefineState(rs=>({...rs,pausedIndex:refineFlow.index,promptStage:"done",showPrompt:false}));
+        };
+        const onKeepGoing=()=>{
+          /* Just dismiss the confirm; refine flow stays mounted. */
+          setRefineExitConfirm(false);
+        };
+        const onDiscard=()=>{
+          /* Wipe paused index + close. Earlyrefs tags stay so the prompt
+             can re-fire after another rating, but pausedIndex resets. */
+          setRefineFlow(null);
+          setRefineExitConfirm(false);
+          setRefineState(rs=>({...rs,pausedIndex:null,promptStage:"done"}));
+        };
+        return(
+        <div onClick={onKeepGoing} style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.72)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"fadeIn 200ms var(--ease-out)"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"var(--c-bg)",borderRadius:"20px 20px 0 0",padding:"22px 20px calc(env(safe-area-inset-bottom, 0px) + 20px)",maxWidth:420,width:"100%",boxShadow:"0 -4px 40px rgba(0,0,0,0.25)",borderTop:"1px solid var(--c-border)",animation:"slideUp 300ms var(--ease-out)",maxHeight:"92dvh",overflowY:"auto",touchAction:"pan-y"}}>
             <div style={{fontSize:18,fontWeight:500,fontFamily:"var(--font-display)",textAlign:"center",marginBottom:6,color:"var(--c-text)"}}>Pause refinement?</div>
             <div style={{fontSize:13,color:"var(--c-sub)",lineHeight:1.5,textAlign:"center",marginBottom:18}}>You're {refineFlow.index} of {refineState.earlyRefs.length} done. We'll save your progress.</div>
-            <button type="button" onClick={()=>{setRefineState(rs=>({...rs,pausedIndex:refineFlow.index,promptStage:"done",showPrompt:false}));setRefineFlow(null);setRefineExitConfirm(false);}} style={{width:"100%",background:"var(--c-green)",color:"#fff",border:"none",borderRadius:12,padding:"12px",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"var(--font-body)",marginBottom:8}}>Pause (save progress)</button>
-            <button type="button" onClick={()=>setRefineExitConfirm(false)} style={{width:"100%",background:"var(--c-card)",color:"var(--c-text)",border:"1px solid var(--c-border)",borderRadius:12,padding:"12px",fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"var(--font-body)",marginBottom:8}}>Keep going</button>
-            <button type="button" onClick={()=>{setRefineFlow(null);setRefineExitConfirm(false);setRefineState(rs=>({...rs,pausedIndex:null,promptStage:"done"}));}} style={{width:"100%",background:"transparent",color:"var(--c-muted)",border:"none",padding:"8px",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"var(--font-body)"}}>Discard progress</button>
+            <button type="button" onClick={onPause} className="pressable" style={{width:"100%",background:"var(--c-green)",color:"#fff",border:"none",borderRadius:12,padding:"12px",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"var(--font-body)",marginBottom:8}}>Pause (save progress)</button>
+            <button type="button" onClick={onKeepGoing} className="pressable" style={{width:"100%",background:"var(--c-card)",color:"var(--c-text)",border:"1px solid var(--c-border)",borderRadius:12,padding:"12px",fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"var(--font-body)",marginBottom:8}}>Keep going</button>
+            <button type="button" onClick={onDiscard} className="pressable" style={{width:"100%",background:"transparent",color:"var(--c-muted)",border:"none",padding:"8px",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"var(--font-body)"}}>Discard progress</button>
           </div>
-        </div>
-      )}
+        </div>);
+      })()}
       {requestToast&&(
         <div style={{position:"absolute",left:16,right:16,bottom:"calc(env(safe-area-inset-bottom, 0px) + 76px)",zIndex:120,display:"flex",justifyContent:"center",pointerEvents:"none",animation:"slideUp 300ms var(--ease-out)"}}>
           <div style={{background:"var(--c-text)",color:"var(--c-bg)",borderRadius:12,padding:"10px 14px",fontSize:12,fontWeight:600,maxWidth:380,textAlign:"center",boxShadow:"0 12px 28px rgba(0,0,0,0.25)",fontFamily:"var(--font-body)",lineHeight:1.45}}>{requestToast}</div>
