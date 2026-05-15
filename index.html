@@ -1933,19 +1933,18 @@ function calcScore(results,opts={}){
   if(floor>ceil){const m=(floor+ceil)/2;floor=m;ceil=m;}
   let score=(floor+ceil)/2;if(ties.length)score=(score+ties.reduce((a,b)=>a+b,0)/ties.length)/2;
   if(results.every(r=>r.result==="win"))score=Math.min(10,floor+.5);if(results.every(r=>r.result==="loss"))score=Math.max(1,ceil-.5);
-  /* Cap the top of the scale so 10.0 stays meaningful. Build 5 tighten:
-     build 3 relax was too generous (10.0 was reachable too easily). Now
-     9.7 needs 4 wins, 9.8 needs 2 top wins (>=9.0) AND 5 total wins,
-     9.9 needs 3 top wins, 10.0 needs 4 top wins + 6 total wins.
-     Refine flow bypasses entirely — by then the user's scale is calibrated. */
+  /* Cap the top of the scale so 10.0 stays meaningful. Build 5 tightening
+     was reverted in build 6 — testing showed it was capping legit 10.0
+     ratings (user beat a course that was a 10 and only got 9.7). Reverted
+     to build 3 thresholds. Real fix is a more nuanced calibration check —
+     workshop later. Refine flow still bypasses entirely. */
   if(opts.bypassCap)return Math.round(Math.max(1,Math.min(10,score))*10)/10;
   if(score>=9.7){
     const wins=results.filter(r=>r.result==="win");
     const topWins=wins.filter(r=>r.score>=9.0);
-    if(wins.length<4)score=Math.min(score,9.7);
-    else if(topWins.length<2||wins.length<5)score=Math.min(score,9.8);
+    if(wins.length<3)score=Math.min(score,9.7);
+    else if(topWins.length<2)score=Math.min(score,9.8);
     else if(topWins.length<3)score=Math.min(score,9.9);
-    else if(topWins.length<4||wins.length<6)score=Math.min(score,9.9);
   }
   return Math.round(Math.max(1,Math.min(10,score))*10)/10;
 }
@@ -2262,9 +2261,9 @@ function QuickLogModal({initialCourse,ratedCourses,friends,userTees,onSave,onClo
           </div>
           {selectedCourse?.subcourses&&<div>
             <label style={{fontSize:11,fontWeight:700,color:"var(--c-muted)",letterSpacing:1,textTransform:"uppercase",display:"block",marginBottom:6}}>Which course</label>
-            <div data-allow-horizontal style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2}}>
+            <div data-allow-horizontal style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:6,WebkitOverflowScrolling:"touch",overscrollBehavior:"contain",touchAction:"pan-x",scrollbarWidth:"none"}}>
               {selectedCourse.subcourses.map(sc=>{const active=subName===sc.name;return(
-                <button key={sc.name} type="button" className="pressable" onClick={()=>setSubName(sc.name)} style={{whiteSpace:"nowrap",padding:"7px 14px",borderRadius:20,border:`1px solid ${active?"var(--c-green-border)":"var(--c-border)"}`,cursor:"pointer",fontWeight:600,fontSize:12,fontFamily:"var(--font-body)",background:active?"var(--c-green-dim)":"var(--c-card)",color:active?"var(--c-green)":"var(--c-sub)",transition:"all 200ms var(--ease-out)"}}>{sc.name}</button>);
+                <button key={sc.name} type="button" className="pressable" onClick={()=>setSubName(sc.name)} style={{whiteSpace:"nowrap",padding:"7px 14px",borderRadius:20,border:`1px solid ${active?"var(--c-green-border)":"var(--c-border)"}`,cursor:"pointer",fontWeight:600,fontSize:12,fontFamily:"var(--font-body)",background:active?"var(--c-green-dim)":"var(--c-card)",color:active?"var(--c-green)":"var(--c-sub)",transition:"all 200ms var(--ease-out)",flexShrink:0}}>{sc.name}</button>);
               })}
             </div>
           </div>}
@@ -8947,22 +8946,32 @@ function App(){
             </div>
             <HeadToHeadModal key={`refine-${refineFlow.index}`} course={refineCourse} targetSubName={ref.subName||undefined} ratings={ratings} friends={friends} userTees={profile?.userTees} bypassCap={true}
               onComplete={r=>{saveRating(ref.courseId,{...r,...(ref.subName?{subcourse:ref.subName}:{})},{refine:true});advance();}}
-              onClose={()=>{if(refineFlow.index>0)setRefineExitConfirm(true);else setRefineFlow(null);}}/>
+              onClose={()=>{
+                /* Build 6: don't re-trigger confirm if it's already open
+                   (the previous version would loop on backdrop tap because
+                   H2H's Sheet onClose fires every backdrop tap, and confirm
+                   would re-open even if user just dismissed it). */
+                if(refineExitConfirm)return;
+                if(refineFlow.index>0)setRefineExitConfirm(true);
+                else setRefineFlow(null);
+              }}/>
           </div>
         );
       })()}
       {refineExitConfirm&&refineFlow&&(()=>{
-        /* Build 5: handlers extracted into named functions so the JSX is
-           clearer and we know exactly what each path does. The previous
-           version was reportedly trapping users in a loop — likely the
-           backdrop tap reading as "Keep going" without dismissing the
-           confirm. Now backdrop tap = Keep going (matches button) AND
-           the Pause button explicitly does both DB persist + state reset. */
+        /* Build 6: snapshot index up front + persist DB synchronously so a
+           quick re-render doesn't lose state. Previous bug had Pause/Discard
+           "bouncing back" — likely refineFlow getting nulled mid-batch then
+           re-set by a stale closure. Snapshot avoids the closure trap. */
+        const idx=refineFlow.index;
         const onPause=()=>{
           /* Pause: persist current index so user can resume later. */
+          const nextRefine={earlyRefs:refineState.earlyRefs,promptStage:"done",pausedIndex:idx};
           setRefineFlow(null);
           setRefineExitConfirm(false);
-          setRefineState(rs=>({...rs,pausedIndex:refineFlow.index,promptStage:"done",showPrompt:false}));
+          setRefineState(rs=>({...rs,pausedIndex:idx,promptStage:"done",showPrompt:false}));
+          /* Force-immediate DB persist so reload picks up the pause. */
+          dbWriteProfileFields({refineState:nextRefine});
         };
         const onKeepGoing=()=>{
           /* Just dismiss the confirm; refine flow stays mounted. */
@@ -8971,9 +8980,11 @@ function App(){
         const onDiscard=()=>{
           /* Wipe paused index + close. Earlyrefs tags stay so the prompt
              can re-fire after another rating, but pausedIndex resets. */
+          const nextRefine={earlyRefs:refineState.earlyRefs,promptStage:"done",pausedIndex:null};
           setRefineFlow(null);
           setRefineExitConfirm(false);
           setRefineState(rs=>({...rs,pausedIndex:null,promptStage:"done"}));
+          dbWriteProfileFields({refineState:nextRefine});
         };
         return(
         <div onClick={onKeepGoing} style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.72)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"fadeIn 200ms var(--ease-out)"}}>
