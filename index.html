@@ -8496,11 +8496,22 @@ function App(){
   };
   /* Total rated units (after every rating change) — powers the 15/20 refine prompt */
   const totalUnits=getRatedUnits(ratings).length;
+  /* Build 5 fix: session-only "shown this session" guard so the prompt
+     never re-pops after a dismiss within the same launch. The promptStage
+     advance still persists to DB so future launches respect it, but this
+     guard catches the case where dismiss + close + reopen happens before
+     the 500ms persist debounce hits, OR if the user already has 20+
+     ratings when dismissing the pending-15 prompt (would otherwise re-fire
+     immediately as pending-20). */
+  const refinePromptShownThisSessionRef=useRef(false);
   useEffect(()=>{
     if(refineState.promptStage==="done"||refineState.showPrompt||refineFlow)return;
+    if(refinePromptShownThisSessionRef.current)return;
     if(refineState.promptStage==="pending-15"&&totalUnits>=15){
+      refinePromptShownThisSessionRef.current=true;
       setTimeout(()=>setRefineState(rs=>({...rs,showPrompt:true})),500);
     }else if(refineState.promptStage==="pending-20"&&totalUnits>=20){
+      refinePromptShownThisSessionRef.current=true;
       setTimeout(()=>setRefineState(rs=>({...rs,showPrompt:true})),500);
     }
   },[totalUnits,refineState.promptStage,refineState.showPrompt,refineFlow]);
@@ -8851,11 +8862,18 @@ function App(){
           return null;
         }
         const dismiss=()=>{
-          setRefineState(rs=>({...rs,showPrompt:false,promptStage:stage==="pending-15"?"pending-20":"done"}));
-          /* On the second dismissal (the one that flips promptStage to 'done'),
-             surface a brief toast so the user knows refine didn't disappear —
-             they can still find it in Settings later. */
-          if(stage!=="pending-15"){
+          /* Build 5: skip pending-20 entirely if the user already has 20+
+             ratings — flip straight to 'done' so we don't re-prompt on the
+             next mount with the same data. Also persist to DB immediately
+             (don't wait for the 500ms debounce) so a quick close+reopen
+             before the persist fires won't re-trigger the prompt. */
+          const nextStage=stage==="pending-15"?(totalUnits>=20?"done":"pending-20"):"done";
+          setRefineState(rs=>({...rs,showPrompt:false,promptStage:nextStage}));
+          dbWriteProfileFields({refineState:{earlyRefs:refineState.earlyRefs,promptStage:nextStage,pausedIndex:refineState.pausedIndex}});
+          /* On the dismissal that flips promptStage to 'done', surface a brief
+             toast so the user knows refine didn't disappear — they can still
+             find it in Settings later. */
+          if(nextStage==="done"){
             setHandicapToast({needed:0,ts:Date.now(),value:null,settingsHint:true});
           }
         };
@@ -8867,8 +8885,11 @@ function App(){
         };
         const count=validRefs.length;
         return(
-        <div onClick={dismiss} style={{position:"absolute",inset:0,background:"rgba(28,25,23,0.65)",zIndex:90,display:"flex",alignItems:"center",justifyContent:"center",padding:20,animation:"fadeIn 200ms var(--ease-out)"}}>
-          <div onClick={e=>e.stopPropagation()} style={{background:"var(--c-bg)",borderRadius:"20px 20px 0 0",padding:"22px 22px calc(env(safe-area-inset-bottom, 0px) + 24px)",maxWidth:420,width:"100%",boxShadow:"0 -4px 40px rgba(0,0,0,0.18)",borderTop:"1px solid var(--c-border)",animation:"slideUp 300ms var(--ease-out)",maxHeight:"92dvh",overflowY:"auto",touchAction:"pan-y"}}>
+        /* Build 5: anchor to bottom (matches the top-only border-radius
+           design). Previously alignItems:center floated the sheet
+           mid-screen with bottom corners awkwardly visible. */
+        <div onClick={dismiss} style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.65)",zIndex:90,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"fadeIn 200ms var(--ease-out)"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"var(--c-bg)",borderRadius:"20px 20px 0 0",padding:"22px 22px calc(env(safe-area-inset-bottom, 0px) + 20px)",maxWidth:420,width:"100%",boxShadow:"0 -4px 40px rgba(0,0,0,0.18)",borderTop:"1px solid var(--c-border)",animation:"slideUp 300ms var(--ease-out)",maxHeight:"92dvh",overflowY:"auto",touchAction:"pan-y"}}>
             <div style={{fontSize:36,textAlign:"center",marginBottom:8}}>{"\u2728"}</div>
             <div style={{fontSize:22,fontWeight:500,fontFamily:"var(--font-display)",textAlign:"center",marginBottom:10,color:"var(--c-text)"}}>Refine your early ratings?</div>
             <div style={{fontSize:13,color:"var(--c-sub)",lineHeight:1.55,marginBottom:14}}>
