@@ -5399,8 +5399,11 @@ function LoginScreen(){
       }
     }catch(e){setError(e.message||"Google sign-in failed.");setBusy(false);}
   };
-  return(<div style={{width:"100%",height:"100vh",display:"flex",flexDirection:"column",background:"var(--c-bg)",fontFamily:"var(--font-body)"}}>
-    <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"center",padding:"24px",maxWidth:420,margin:"0 auto",width:"100%"}}>
+  /* Build 7: wrap in a scrollable container so keyboard-open state lets
+     the user reach all fields + buttons. Previously height:100vh + no
+     overflow meant the keyboard pushed bottom buttons offscreen. */
+  return(<div style={{width:"100%",height:"100dvh",display:"flex",flexDirection:"column",background:"var(--c-bg)",fontFamily:"var(--font-body)",overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+    <div style={{display:"flex",flexDirection:"column",padding:"24px",paddingTop:"max(env(safe-area-inset-top, 0px) + 40px, 60px)",paddingBottom:"max(env(safe-area-inset-bottom, 0px) + 40px, 60px)",maxWidth:420,margin:"0 auto",width:"100%",boxSizing:"border-box",minHeight:"100%",justifyContent:"center"}}>
       <div style={{textAlign:"center",marginBottom:32}}>
         <div style={{fontSize:64,fontWeight:400,fontFamily:"var(--font-display)",fontStyle:"italic",color:"var(--c-green)",lineHeight:1,letterSpacing:-0.5,paddingRight:6}}>Pure</div>
         <div style={{fontSize:11,color:"var(--c-muted)",marginTop:8,fontWeight:600,letterSpacing:2.6,textTransform:"uppercase"}}>Golf Journal</div>
@@ -8090,6 +8093,11 @@ function App(){
   },[refineState.earlyRefs,refineState.promptStage,refineState.pausedIndex]);
   const[refineFlow,setRefineFlow]=useState(null); // {index, refs} when actively refining
   const[refineExitConfirm,setRefineExitConfirm]=useState(false);
+  /* Build 7: latest-value ref so the H2H Sheet's onClose closure (captured at
+     render time before confirm appeared) can still bail out if confirm is now
+     showing. Without this, repeated backdrop taps re-triggered confirm. */
+  const refineExitConfirmRef=useRef(false);
+  useEffect(()=>{refineExitConfirmRef.current=refineExitConfirm;},[refineExitConfirm]);
   /* Pending course requests — holds names of courses user wants added. Feature fully ships with backend. */
   const[pendingRequests,setPendingRequests]=useState([]);
   const[requestToast,setRequestToast]=useState(null);
@@ -8939,7 +8947,12 @@ function App(){
           }
         };
         return(
-          <div style={{position:"absolute",inset:0,zIndex:95}}>
+          /* Build 7: when confirm is open, hide H2H wrapper visually
+             (pointerEvents:none + visibility:hidden) so the underlying
+             Sheet's backdrop can't be tapped to re-trigger close. Keeps
+             H2H mounted so user state is preserved if they pick 'Keep
+             going'. */
+          <div style={{position:"absolute",inset:0,zIndex:95,visibility:refineExitConfirm?"hidden":"visible",pointerEvents:refineExitConfirm?"none":"auto"}}>
             <div style={{position:"absolute",top:0,left:0,right:0,zIndex:2,background:"var(--c-green)",color:"#fff",padding:"10px 16px max(env(safe-area-inset-top), 10px) 16px",display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:12,fontWeight:700,letterSpacing:0.3,fontFamily:"var(--font-body)",pointerEvents:"none"}}>
               <span>Refining {refineFlow.index+1} of {total}</span>
               <span style={{opacity:0.9}}>{refineCourse.name}{ref.subName?` — ${ref.subName}`:""}</span>
@@ -8947,11 +8960,11 @@ function App(){
             <HeadToHeadModal key={`refine-${refineFlow.index}`} course={refineCourse} targetSubName={ref.subName||undefined} ratings={ratings} friends={friends} userTees={profile?.userTees} bypassCap={true}
               onComplete={r=>{saveRating(ref.courseId,{...r,...(ref.subName?{subcourse:ref.subName}:{})},{refine:true});advance();}}
               onClose={()=>{
-                /* Build 6: don't re-trigger confirm if it's already open
-                   (the previous version would loop on backdrop tap because
-                   H2H's Sheet onClose fires every backdrop tap, and confirm
-                   would re-open even if user just dismissed it). */
-                if(refineExitConfirm)return;
+                /* Build 7: read confirm state from ref to avoid stale-closure
+                   bug. Previous version captured refineExitConfirm at render
+                   time; after the Sheet's 300ms close animation, the captured
+                   value was stale and re-fired confirm in a loop. */
+                if(refineExitConfirmRef.current)return;
                 if(refineFlow.index>0)setRefineExitConfirm(true);
                 else setRefineFlow(null);
               }}/>
