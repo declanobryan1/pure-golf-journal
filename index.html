@@ -3799,7 +3799,12 @@ function HeadToHeadModal({course,targetSubName,ratings,onComplete,onClose,friend
   if(finishing)return(<Sheet noDismiss><div style={{padding:"20px 18px 40px",textAlign:"center"}}><div style={{fontSize:10,fontWeight:700,color:"var(--c-green)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:12}}>Calculating Score</div><div style={{fontSize:28,fontWeight:300,fontFamily:"var(--font-display)",color:"var(--c-green)",opacity:0.7}}>...</div></div></Sheet>);
   const compCourse=current.course;const shared=course.tags.filter(t=>compCourse.tags.includes(t));
   const progress=Math.min(1,results.length/Math.max(MIN_ROUNDS,displayTarget));
-  return(<Sheet noDismiss><div style={{padding:"4px 18px 28px"}}>
+  /* Build 9: in refineMode, allow backdrop tap to pause too — same effect as
+     the Pause button. Non-refine duels stay noDismiss because losing
+     mid-rating progress would be worse than user expectation. Refine has
+     auto-save-progress semantics so backdrop-as-pause is safe and matches
+     the user's instinct ("tap top of screen to back out"). */
+  return(<Sheet noDismiss={!refineMode} onClose={refineMode?handleCloseOrPause:undefined}><div style={{padding:"4px 18px 28px"}}>
     {refineHeader&&<div style={{marginTop:-4,marginBottom:10,padding:"8px 10px",background:"var(--c-green-dim)",border:"1px solid var(--c-green-border)",borderRadius:10,fontSize:11,fontWeight:600,color:"var(--c-green)",textAlign:"center"}}>{refineHeader}</div>}
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
       <div>
@@ -8361,6 +8366,9 @@ function App(){
       supabase.from("user_tees").delete().eq("user_id",uid),
       supabase.from("reactions").delete().eq("user_id",uid),
       supabase.from("course_requests").delete().eq("user_id",uid),
+      /* Build 9 fix: reactions WHERE I'm the target too, so friend
+         reactions on my old ratings don't linger. */
+      supabase.from("reactions").delete().eq("target_user_id",uid),
     ]);
     const failed=results.filter(r=>r.error);
     if(failed.length){
@@ -8368,20 +8376,41 @@ function App(){
       window.alert("Couldn't fully reset your data — some items may still be there. Check your connection and try again.");
       return;
     }
+    /* Build 9 fix: reset refine_state and any other build-3+ fields too —
+       previously these survived a reset and led to ghost refine prompts
+       and other inconsistencies after wiping ratings. */
     const{error:profErr}=await supabase.from("users").update({
       home_course_id:null,
+      home_area:null,
       self_reported_handicap:null,
       self_reported_at:null,
       welcome_tour_seen:false,
+      refine_state:null,
+      hide_ratings:"off",
+      hide_shots:false,
+      private_profile:false,
     }).eq("id",uid);
     if(profErr){
       _dbFail("reset profile update",profErr);
       window.alert("Your data was deleted but we couldn't reset your profile. Try signing out and back in.");
       return;
     }
-    /* Drop per-device cached preferences keyed to this user */
-    try{localStorage.removeItem(`pure-course-previews-${uid}`);}catch{}
-    try{localStorage.removeItem(`pure-refine-stage-${uid}`);}catch{}
+    /* Build 9 fix: wipe ALL per-user localStorage keys, not just two. Was
+       leaving baseline/feedback/refine-shown flags behind, causing the
+       post-reset UX to act like the user already saw all the onboarding-y
+       prompts even though their data is gone. */
+    try{
+      const prefixes=[
+        `pure-course-previews-${uid}`,
+        `pure-refine-stage-${uid}`,
+        `pure-refine-${uid}`,
+        `pure-refine-shown-15-${uid}`,
+        `pure-refine-shown-20-${uid}`,
+        `pure-baseline-done-${uid}`,
+        `pure_feedback_prompted_${uid}`,
+      ];
+      prefixes.forEach(k=>{try{localStorage.removeItem(k);}catch{}});
+    }catch{}
     window.location.reload();
   };
   /* Set home course from Settings. If the user hasn't rated this course yet, open the
