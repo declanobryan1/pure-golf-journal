@@ -3351,7 +3351,7 @@ function Sheet({onClose,children,noDismiss,fullScreen,floating,noEnter}){
   const innerStyle=floating?{
     position:"absolute",left:12,right:12,top:"max(env(safe-area-inset-top, 0px) + 60px, 80px)",
     margin:"0 auto",
-    background:"var(--c-bg)",borderRadius:18,maxWidth:390,
+    background:"var(--c-bg)",borderRadius:18,maxWidth:540,
     maxHeight:"calc(100dvh - 140px - env(safe-area-inset-bottom, 0px))",
     overflowY:"auto",overscrollBehavior:"contain",WebkitOverflowScrolling:"touch",
     border:"1px solid var(--c-border)",
@@ -3361,7 +3361,7 @@ function Sheet({onClose,children,noDismiss,fullScreen,floating,noEnter}){
     willChange:"transform,opacity",
   }:{
     background:"var(--c-bg)",borderRadius:"18px 18px 0 0",width:"100%",
-    maxWidth:390,maxHeight:"92dvh",overflowY:"auto",overscrollBehavior:"contain",
+    maxWidth:540,maxHeight:"92dvh",overflowY:"auto",overscrollBehavior:"contain",
     WebkitOverflowScrolling:"touch",borderTop:"1px solid var(--c-border)",
     boxShadow:"0 -4px 40px rgba(0,0,0,0.12)",paddingBottom:"env(safe-area-inset-bottom, 0px)",
     /* touchAction:pan-y prevents iOS from interpreting horizontal drags on the sheet
@@ -6336,7 +6336,7 @@ function SettingsView({settings,onUpdate,onBack,profile,onUpdateProfile,onSetHom
       })()}
       {ghinHelp&&ReactDOM.createPortal((
         <div onClick={()=>setGhinHelp(false)} style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.72)",zIndex:180,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"fadeIn 200ms var(--ease-out)"}}>
-          <div onClick={e=>e.stopPropagation()} style={{background:"var(--c-bg)",borderRadius:"20px 20px 0 0",padding:"22px 22px calc(env(safe-area-inset-bottom, 0px) + 26px)",maxWidth:420,width:"100%",maxHeight:"92dvh",overflowY:"auto",touchAction:"pan-y",animation:"slideUp 300ms var(--ease-out)"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"var(--c-bg)",borderRadius:"20px 20px 0 0",padding:"22px 22px calc(env(safe-area-inset-bottom, 0px) + 26px)",maxWidth:540,width:"100%",maxHeight:"92dvh",overflowY:"auto",touchAction:"pan-y",animation:"slideUp 300ms var(--ease-out)"}}>
             <div style={{width:40,height:4,background:"var(--c-border)",borderRadius:2,margin:"0 auto 16px"}}/>
             <div style={{fontSize:19,fontWeight:500,fontFamily:"var(--font-display)",marginBottom:6}}>Logging your rounds</div>
             <div style={{fontSize:12,color:"var(--c-muted)",marginBottom:18,lineHeight:1.55}}>Most handicap services don't offer a one-tap export, so we make it easy to log rounds yourself.</div>
@@ -8818,7 +8818,7 @@ function App(){
       />}
       {showBaselineIntro&&(
         <div onClick={()=>setShowBaselineIntro(false)} style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.65)",zIndex:80,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"fadeIn 200ms var(--ease-out)"}}>
-          <div onClick={e=>e.stopPropagation()} style={{background:"var(--c-bg)",borderRadius:"20px 20px 0 0",padding:"22px 22px calc(env(safe-area-inset-bottom, 0px) + 24px)",maxWidth:420,width:"100%",boxShadow:"0 -4px 40px rgba(0,0,0,0.18)",borderTop:"1px solid var(--c-border)",animation:"slideUp 300ms var(--ease-out)",maxHeight:"92dvh",overflowY:"auto",touchAction:"pan-y"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"var(--c-bg)",borderRadius:"20px 20px 0 0",padding:"22px 22px calc(env(safe-area-inset-bottom, 0px) + 24px)",maxWidth:540,width:"100%",boxShadow:"0 -4px 40px rgba(0,0,0,0.18)",borderTop:"1px solid var(--c-border)",animation:"slideUp 300ms var(--ease-out)",maxHeight:"92dvh",overflowY:"auto",touchAction:"pan-y"}}>
             <div style={{fontSize:36,textAlign:"center",marginBottom:8}}>⛳</div>
             <div style={{fontSize:22,fontWeight:500,fontFamily:"var(--font-display)",textAlign:"center",marginBottom:10,color:"var(--c-text)"}}>Welcome to Pure</div>
             <div style={{fontSize:13,color:"var(--c-sub)",lineHeight:1.55,marginBottom:14}}>
@@ -8838,7 +8838,7 @@ function App(){
 
       {showBaselineDone&&(
         <div onClick={()=>setShowBaselineDone(false)} style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.65)",zIndex:80,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"fadeIn 200ms var(--ease-out)"}}>
-          <div onClick={e=>e.stopPropagation()} style={{background:"var(--c-bg)",borderRadius:"20px 20px 0 0",padding:"22px 22px calc(env(safe-area-inset-bottom, 0px) + 24px)",maxWidth:420,width:"100%",boxShadow:"0 -4px 40px rgba(0,0,0,0.18)",borderTop:"1px solid var(--c-border)",animation:"slideUp 300ms var(--ease-out)",maxHeight:"92dvh",overflowY:"auto",touchAction:"pan-y"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"var(--c-bg)",borderRadius:"20px 20px 0 0",padding:"22px 22px calc(env(safe-area-inset-bottom, 0px) + 24px)",maxWidth:540,width:"100%",boxShadow:"0 -4px 40px rgba(0,0,0,0.18)",borderTop:"1px solid var(--c-border)",animation:"slideUp 300ms var(--ease-out)",maxHeight:"92dvh",overflowY:"auto",touchAction:"pan-y"}}>
             <div style={{fontSize:40,textAlign:"center",marginBottom:8}}>🏆</div>
             <div style={{fontSize:22,fontWeight:500,fontFamily:"var(--font-display)",textAlign:"center",marginBottom:10,color:"var(--c-text)"}}>Baseline Complete</div>
             <div style={{fontSize:13,color:"var(--c-sub)",lineHeight:1.55,marginBottom:16,textAlign:"center"}}>
@@ -8888,7 +8888,7 @@ function App(){
            design). Previously alignItems:center floated the sheet
            mid-screen with bottom corners awkwardly visible. */
         <div onClick={dismiss} style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.65)",zIndex:90,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"fadeIn 200ms var(--ease-out)"}}>
-          <div onClick={e=>e.stopPropagation()} style={{background:"var(--c-bg)",borderRadius:"20px 20px 0 0",padding:"22px 22px calc(env(safe-area-inset-bottom, 0px) + 20px)",maxWidth:420,width:"100%",boxShadow:"0 -4px 40px rgba(0,0,0,0.18)",borderTop:"1px solid var(--c-border)",animation:"slideUp 300ms var(--ease-out)",maxHeight:"92dvh",overflowY:"auto",touchAction:"pan-y"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"var(--c-bg)",borderRadius:"20px 20px 0 0",padding:"22px 22px calc(env(safe-area-inset-bottom, 0px) + 20px)",maxWidth:540,width:"100%",boxShadow:"0 -4px 40px rgba(0,0,0,0.18)",borderTop:"1px solid var(--c-border)",animation:"slideUp 300ms var(--ease-out)",maxHeight:"92dvh",overflowY:"auto",touchAction:"pan-y"}}>
             <div style={{fontSize:36,textAlign:"center",marginBottom:8}}>{"\u2728"}</div>
             <div style={{fontSize:22,fontWeight:500,fontFamily:"var(--font-display)",textAlign:"center",marginBottom:10,color:"var(--c-text)"}}>Refine your early ratings?</div>
             <div style={{fontSize:13,color:"var(--c-sub)",lineHeight:1.55,marginBottom:14}}>
@@ -8988,7 +8988,7 @@ function App(){
         };
         return(
         <div onClick={onKeepGoing} style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.72)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"fadeIn 200ms var(--ease-out)"}}>
-          <div onClick={e=>e.stopPropagation()} style={{background:"var(--c-bg)",borderRadius:"20px 20px 0 0",padding:"22px 20px calc(env(safe-area-inset-bottom, 0px) + 20px)",maxWidth:420,width:"100%",boxShadow:"0 -4px 40px rgba(0,0,0,0.25)",borderTop:"1px solid var(--c-border)",animation:"slideUp 300ms var(--ease-out)",maxHeight:"92dvh",overflowY:"auto",touchAction:"pan-y"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"var(--c-bg)",borderRadius:"20px 20px 0 0",padding:"22px 20px calc(env(safe-area-inset-bottom, 0px) + 20px)",maxWidth:540,width:"100%",boxShadow:"0 -4px 40px rgba(0,0,0,0.25)",borderTop:"1px solid var(--c-border)",animation:"slideUp 300ms var(--ease-out)",maxHeight:"92dvh",overflowY:"auto",touchAction:"pan-y"}}>
             <div style={{fontSize:18,fontWeight:500,fontFamily:"var(--font-display)",textAlign:"center",marginBottom:6,color:"var(--c-text)"}}>Pause refinement?</div>
             <div style={{fontSize:13,color:"var(--c-sub)",lineHeight:1.5,textAlign:"center",marginBottom:18}}>You're {refineFlow.index} of {refineState.earlyRefs.length} done. We'll save your progress.</div>
             <button type="button" onClick={onPause} className="pressable" style={{width:"100%",background:"var(--c-green)",color:"#fff",border:"none",borderRadius:12,padding:"12px",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"var(--font-body)",marginBottom:8}}>Pause (save progress)</button>
