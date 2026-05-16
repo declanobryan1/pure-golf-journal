@@ -8354,8 +8354,9 @@ function App(){
       window.alert("Your data was deleted but we couldn't reset your profile. Try signing out and back in.");
       return;
     }
-    /* Drop per-device cached preferences keyed to this user (course preview overrides) */
+    /* Drop per-device cached preferences keyed to this user */
     try{localStorage.removeItem(`pure-course-previews-${uid}`);}catch{}
+    try{localStorage.removeItem(`pure-refine-stage-${uid}`);}catch{}
     window.location.reload();
   };
   /* Set home course from Settings. If the user hasn't rated this course yet, open the
@@ -8514,6 +8515,18 @@ function App(){
   useEffect(()=>{
     if(refineState.promptStage==="done"||refineState.showPrompt||refineFlow)return;
     if(refinePromptShownThisSessionRef.current)return;
+    /* Build 7: synchronous localStorage check catches the case where iOS
+       killed the app right after a dismiss but before the async DB persist
+       completed. On next cold launch, DB still has the old stage but
+       localStorage has the dismissed stage — trust localStorage. */
+    try{
+      const uid=session?.user?.id;
+      if(uid){
+        const cached=localStorage.getItem(`pure-refine-stage-${uid}`);
+        if(cached==="done")return;
+        if(cached==="pending-20"&&refineState.promptStage==="pending-15")return;
+      }
+    }catch{}
     if(refineState.promptStage==="pending-15"&&totalUnits>=15){
       refinePromptShownThisSessionRef.current=true;
       setTimeout(()=>setRefineState(rs=>({...rs,showPrompt:true})),500);
@@ -8869,14 +8882,18 @@ function App(){
           return null;
         }
         const dismiss=()=>{
-          /* Build 5: skip pending-20 entirely if the user already has 20+
-             ratings — flip straight to 'done' so we don't re-prompt on the
-             next mount with the same data. Also persist to DB immediately
-             (don't wait for the 500ms debounce) so a quick close+reopen
-             before the persist fires won't re-trigger the prompt. */
+          /* Build 7: skip pending-20 entirely if the user already has 20+
+             ratings. Persist to DB async (best effort) AND localStorage
+             synchronously so iOS killing the backgrounded app right after
+             dismiss doesn't lose the dismissal — on next cold launch we
+             check localStorage before showing the prompt. */
           const nextStage=stage==="pending-15"?(totalUnits>=20?"done":"pending-20"):"done";
           setRefineState(rs=>({...rs,showPrompt:false,promptStage:nextStage}));
           dbWriteProfileFields({refineState:{earlyRefs:refineState.earlyRefs,promptStage:nextStage,pausedIndex:refineState.pausedIndex}});
+          try{
+            const uid=session?.user?.id;
+            if(uid)localStorage.setItem(`pure-refine-stage-${uid}`,nextStage);
+          }catch{}
           /* On the dismissal that flips promptStage to 'done', surface a brief
              toast so the user knows refine didn't disappear — they can still
              find it in Settings later. */
