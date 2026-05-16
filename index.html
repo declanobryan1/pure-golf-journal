@@ -3678,14 +3678,24 @@ function BaselineRatingModal({course,targetSubName,onSave,onClose,friends,baseli
 /* ═══════════════════════════════════════════════════════════
    HEAD-TO-HEAD MODAL
 ═══════════════════════════════════════════════════════════ */
-function HeadToHeadModal({course,targetSubName,ratings,onComplete,onClose,friends,userTees,bypassCap}){
+function HeadToHeadModal({course,targetSubName,ratings,onComplete,onClose,friends,userTees,bypassCap,refineMode,onPause,refineHeader}){
   const allCandidates=useMemo(()=>getCandidates(course,targetSubName,ratings),[]);
   const[candidates,setCandidates]=useState(allCandidates);
   const MIN_ROUNDS=Math.min(3,candidates.length);
   const[results,setResults]=useState([]);const[chosen,setChosen]=useState(null);const[busy,setBusy]=useState(false);
-  const[phase,setPhase]=useState("impression");const[finalScore,setFinalScore]=useState(null);const[finishing,setFinishing]=useState(false);
-  const[impression,setImpression]=useState(null);
+  /* Build 7: refineMode skips the impression phase entirely (the user has
+     already rated this course — they're not forming a first impression,
+     they're just re-comparing) and skips the round-metadata fields on the
+     result screen (refine isn't logging a new round, just updating the
+     existing rating's score). */
+  const[phase,setPhase]=useState(refineMode?"duel":"impression");const[finalScore,setFinalScore]=useState(null);const[finishing,setFinishing]=useState(false);
+  /* In refineMode, pretend the user picked a neutral "Solid" impression so
+     the cap/floor logic still works but no UI is shown. */
+  const[impression,setImpression]=useState(refineMode?{s:7,label:"Refined",color:"var(--c-green)"}:null);
   const[note,setNote]=useState("");const[date,setDate]=useState(new Date().toISOString().split("T")[0]);const[shotScore,setShotScore]=useState("");const[photos,setPhotos]=useState([]);const[playedWith,setPlayedWith]=useState([]);const[tee,setTee]=useState(null);
+  /* In refineMode the X button is a Pause action — synchronously persists
+     progress + closes. Falls back to onClose for non-refine flows. */
+  const handleCloseOrPause=()=>{if(refineMode&&onPause){onPause();}else{onClose();}};
   const startComparisons=()=>{
     if(!impression)return;
     const narrowed=allCandidates.filter(c=>Math.abs(c.score-impression.s)<=1.8);
@@ -3709,9 +3719,9 @@ function HeadToHeadModal({course,targetSubName,ratings,onComplete,onClose,friend
         setFinishing(true);setFinalScore(Math.max(1,Math.min(10,adjScore)));setTimeout(()=>setPhase("result"),350);
       }
     },260);};
-  if(phase==="impression"){return(<Sheet onClose={onClose}><div style={{padding:"8px 20px 36px"}}>
+  if(phase==="impression"){return(<Sheet onClose={handleCloseOrPause}><div style={{padding:"8px 20px 36px"}}>
     <div style={{display:"flex",justifyContent:"flex-end",marginBottom:-4}}>
-      <button className="pressable" onClick={onClose} style={{background:"var(--c-surface)",border:"1px solid var(--c-border)",borderRadius:"50%",width:32,height:32,cursor:"pointer",fontSize:14,color:"var(--c-muted)",display:"flex",alignItems:"center",justifyContent:"center"}}>{"\u2715"}</button>
+      <button className="pressable" onClick={handleCloseOrPause} style={{background:"var(--c-surface)",border:"1px solid var(--c-border)",borderRadius:"50%",width:32,height:32,cursor:"pointer",fontSize:14,color:"var(--c-muted)",display:"flex",alignItems:"center",justifyContent:"center"}}>{"\u2715"}</button>
     </div>
     <div style={{marginBottom:18}}>
       <div style={{fontSize:10,fontWeight:700,color:"var(--c-green)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:6}}>First Impression</div>
@@ -3738,8 +3748,16 @@ function HeadToHeadModal({course,targetSubName,ratings,onComplete,onClose,friend
   if(phase==="result"&&finalScore!==null){
     const prevUnits=getRatedUnits(ratings).length;
     const willBeEarly=prevUnits===3||prevUnits===4;
-    /* Save the rating on any exit path from the reveal — X button or tap-above */
-    const saveAndClose=()=>onComplete({overall:finalScore,comparisons:results.map(r=>({key:r.key,courseId:r.courseId,subName:r.subName,result:r.result})),review:note,date,shotScore:shotScore||null,teeName:tee?.teeName||null,courseRating:tee?.rating?Number(tee.rating):null,slope:tee?.slope?Number(tee.slope):null,tee:tee||null,photos:photos.map(p=>p.src),playedWith,impressionLabel:impression?.label||null,...(targetSubName?{subcourse:targetSubName}:{})});
+    /* Build 7: refineMode skips all the round-metadata fields and just saves
+       the new overall score. The user is updating their existing rating, not
+       logging a new round. */
+    const saveAndClose=()=>{
+      if(refineMode){
+        onComplete({overall:finalScore,comparisons:results.map(r=>({key:r.key,courseId:r.courseId,subName:r.subName,result:r.result})),...(targetSubName?{subcourse:targetSubName}:{})});
+      }else{
+        onComplete({overall:finalScore,comparisons:results.map(r=>({key:r.key,courseId:r.courseId,subName:r.subName,result:r.result})),review:note,date,shotScore:shotScore||null,teeName:tee?.teeName||null,courseRating:tee?.rating?Number(tee.rating):null,slope:tee?.slope?Number(tee.slope):null,tee:tee||null,photos:photos.map(p=>p.src),playedWith,impressionLabel:impression?.label||null,...(targetSubName?{subcourse:targetSubName}:{})});
+      }
+    };
     return(<Sheet onClose={saveAndClose}><div style={{padding:"8px 20px 40px"}}>
     <div style={{display:"flex",justifyContent:"flex-end",marginBottom:-4}}>
       <button className="pressable" onClick={saveAndClose} aria-label="Save and close" style={{background:"var(--c-surface)",border:"1px solid var(--c-border)",borderRadius:"50%",width:32,height:32,cursor:"pointer",fontSize:14,color:"var(--c-muted)",display:"flex",alignItems:"center",justifyContent:"center"}}>{"\u2715"}</button>
@@ -3773,19 +3791,22 @@ function HeadToHeadModal({course,targetSubName,ratings,onComplete,onClose,friend
           <span style={{color:"var(--c-sub)"}}>vs {r.label}</span></div>))}
       </div>
     </div>
-    <div style={{height:1,background:"var(--c-border)",marginBottom:20}}/>
-    <RoundFields note={note} setNote={setNote} date={date} setDate={setDate} shotScore={shotScore} setShotScore={setShotScore} photos={photos} setPhotos={setPhotos} friends={friends} playedWith={playedWith} setPlayedWith={setPlayedWith} course={course} subName={targetSubName||null} userTees={userTees} tee={tee} setTee={setTee}/>
-    <PrimaryBtn onClick={saveAndClose}>Save to My Courses</PrimaryBtn>
+    {!refineMode&&<div style={{height:1,background:"var(--c-border)",marginBottom:20}}/>}
+    {!refineMode&&<RoundFields note={note} setNote={setNote} date={date} setDate={setDate} shotScore={shotScore} setShotScore={setShotScore} photos={photos} setPhotos={setPhotos} friends={friends} playedWith={playedWith} setPlayedWith={setPlayedWith} course={course} subName={targetSubName||null} userTees={userTees} tee={tee} setTee={setTee}/>}
+    <PrimaryBtn onClick={saveAndClose}>{refineMode?"Save updated rating":"Save to My Courses"}</PrimaryBtn>
   </div></Sheet>);}
   if(!current&&!finishing)return null;
   if(finishing)return(<Sheet noDismiss><div style={{padding:"20px 18px 40px",textAlign:"center"}}><div style={{fontSize:10,fontWeight:700,color:"var(--c-green)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:12}}>Calculating Score</div><div style={{fontSize:28,fontWeight:300,fontFamily:"var(--font-display)",color:"var(--c-green)",opacity:0.7}}>...</div></div></Sheet>);
   const compCourse=current.course;const shared=course.tags.filter(t=>compCourse.tags.includes(t));
   const progress=Math.min(1,results.length/Math.max(MIN_ROUNDS,displayTarget));
   return(<Sheet noDismiss><div style={{padding:"4px 18px 28px"}}>
+    {refineHeader&&<div style={{marginTop:-4,marginBottom:10,padding:"8px 10px",background:"var(--c-green-dim)",border:"1px solid var(--c-green-border)",borderRadius:10,fontSize:11,fontWeight:600,color:"var(--c-green)",textAlign:"center"}}>{refineHeader}</div>}
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-      <div><div style={{fontSize:10,fontWeight:700,color:"var(--c-green)",letterSpacing:1.5,textTransform:"uppercase"}}>Comparison {roundNum}</div>
-        <div style={{fontSize:20,fontWeight:500,fontFamily:"var(--font-display)",marginTop:2}}>Which was better?</div></div>
-      <button className="pressable" onClick={onClose} style={{background:"var(--c-surface)",border:"1px solid var(--c-border)",borderRadius:"50%",width:32,height:32,cursor:"pointer",fontSize:14,color:"var(--c-muted)",display:"flex",alignItems:"center",justifyContent:"center"}}>{"\u2715"}</button>
+      <div>
+        <div style={{fontSize:10,fontWeight:700,color:"var(--c-green)",letterSpacing:1.5,textTransform:"uppercase"}}>{refineMode?"Refining":""+`Comparison ${roundNum}`}</div>
+        <div style={{fontSize:20,fontWeight:500,fontFamily:"var(--font-display)",marginTop:2}}>Which was better?</div>
+      </div>
+      <button className="pressable" onClick={handleCloseOrPause} style={{background:refineMode?"var(--c-green-dim)":"var(--c-surface)",border:`1px solid ${refineMode?"var(--c-green-border)":"var(--c-border)"}`,borderRadius:refineMode?12:"50%",padding:refineMode?"6px 12px":0,width:refineMode?"auto":32,height:32,cursor:"pointer",fontSize:refineMode?12:14,fontWeight:refineMode?700:400,color:refineMode?"var(--c-green)":"var(--c-muted)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"var(--font-body)"}}>{refineMode?"Pause":"\u2715"}</button>
     </div>
     <div style={{background:"var(--c-surface)",borderRadius:3,height:3,marginBottom:14,overflow:"hidden"}}>
       <div style={{background:"var(--c-green)",borderRadius:3,height:3,width:`${progress*100}%`,transition:"width 400ms var(--ease-out-expo)"}}/>
@@ -5402,8 +5423,12 @@ function LoginScreen(){
   /* Build 7: wrap in a scrollable container so keyboard-open state lets
      the user reach all fields + buttons. Previously height:100vh + no
      overflow meant the keyboard pushed bottom buttons offscreen. */
-  return(<div style={{width:"100%",height:"100dvh",display:"flex",flexDirection:"column",background:"var(--c-bg)",fontFamily:"var(--font-body)",overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
-    <div style={{display:"flex",flexDirection:"column",padding:"24px",paddingTop:"max(env(safe-area-inset-top, 0px) + 40px, 60px)",paddingBottom:"max(env(safe-area-inset-bottom, 0px) + 40px, 60px)",maxWidth:420,margin:"0 auto",width:"100%",boxSizing:"border-box",minHeight:"100%",justifyContent:"center"}}>
+  return(<div style={{width:"100%",height:"100dvh",display:"flex",flexDirection:"column",background:"var(--c-bg)",fontFamily:"var(--font-body)",overflowY:"auto",WebkitOverflowScrolling:"touch",overscrollBehavior:"contain",touchAction:"pan-y"}}>
+    {/* Build 7: removed justifyContent:center + minHeight:100% so the form is
+       top-aligned and the outer overflow can actually scroll when iOS keyboard
+       eats half the viewport. Was previously locked: keyboard up + can't
+       reach inputs below the fold. */}
+    <div style={{display:"flex",flexDirection:"column",padding:"24px",paddingTop:"max(env(safe-area-inset-top, 0px) + 32px, 48px)",paddingBottom:"max(env(safe-area-inset-bottom, 0px) + 32px, 48px)",maxWidth:420,margin:"0 auto",width:"100%",boxSizing:"border-box"}}>
       <div style={{textAlign:"center",marginBottom:32}}>
         <div style={{fontSize:64,fontWeight:400,fontFamily:"var(--font-display)",fontStyle:"italic",color:"var(--c-green)",lineHeight:1,letterSpacing:-0.5,paddingRight:6}}>Pure</div>
         <div style={{fontSize:11,color:"var(--c-muted)",marginTop:8,fontWeight:600,letterSpacing:2.6,textTransform:"uppercase"}}>Golf Journal</div>
@@ -8515,26 +8540,37 @@ function App(){
   useEffect(()=>{
     if(refineState.promptStage==="done"||refineState.showPrompt||refineFlow)return;
     if(refinePromptShownThisSessionRef.current)return;
-    /* Build 7: synchronous localStorage check catches the case where iOS
-       killed the app right after a dismiss but before the async DB persist
-       completed. On next cold launch, DB still has the old stage but
-       localStorage has the dismissed stage — trust localStorage. */
+    /* Build 7 rewrite: track each prompt stage with its OWN localStorage flag.
+       Each flag is set the moment the prompt is shown (not on dismiss). Once
+       set, the prompt for that stage NEVER fires again, regardless of what
+       React state or DB says. This is the only reliable way to handle the
+       case where iOS kills the app between showing the prompt and the DB
+       persisting the dismissal. */
     try{
       const uid=session?.user?.id;
       if(uid){
-        const cached=localStorage.getItem(`pure-refine-stage-${uid}`);
-        if(cached==="done")return;
-        if(cached==="pending-20"&&refineState.promptStage==="pending-15")return;
+        const shown15=localStorage.getItem(`pure-refine-shown-15-${uid}`)==="1";
+        const shown20=localStorage.getItem(`pure-refine-shown-20-${uid}`)==="1";
+        if(refineState.promptStage==="pending-15"&&shown15)return;
+        if(refineState.promptStage==="pending-20"&&shown20)return;
       }
     }catch{}
+    const markShown=(stage)=>{
+      try{
+        const uid=session?.user?.id;
+        if(uid)localStorage.setItem(`pure-refine-shown-${stage==="pending-15"?"15":"20"}-${uid}`,"1");
+      }catch{}
+    };
     if(refineState.promptStage==="pending-15"&&totalUnits>=15){
       refinePromptShownThisSessionRef.current=true;
+      markShown("pending-15");
       setTimeout(()=>setRefineState(rs=>({...rs,showPrompt:true})),500);
     }else if(refineState.promptStage==="pending-20"&&totalUnits>=20){
       refinePromptShownThisSessionRef.current=true;
+      markShown("pending-20");
       setTimeout(()=>setRefineState(rs=>({...rs,showPrompt:true})),500);
     }
-  },[totalUnits,refineState.promptStage,refineState.showPrompt,refineFlow]);
+  },[totalUnits,refineState.promptStage,refineState.showPrompt,refineFlow,session?.user?.id]);
   /* When ratings reach the baseline goal, show the completion popup exactly once */
   useEffect(()=>{
     if(!baselineDoneShown&&baselineCount>=BASELINE_GOAL&&profile){
@@ -8963,69 +8999,31 @@ function App(){
             setRefineFlow({index:nextIndex});
           }
         };
+        /* Build 7: pauseAndExit is a direct one-shot — no confirmation modal.
+           User taps "Pause" in the H2H header → we snapshot the index,
+           persist to BOTH localStorage (synchronous, survives quick-quit)
+           AND DB (async, source of truth), then unmount the H2H entirely.
+           No race conditions, no backdrop loops, no stale closures. */
+        const pauseAndExit=()=>{
+          const idx=refineFlow.index;
+          const nextRefine={earlyRefs:refineState.earlyRefs,promptStage:"done",pausedIndex:idx};
+          /* Synchronous localStorage write — survives even if user immediately
+             swipes the app away before the DB request completes. */
+          try{
+            const uid=session?.user?.id;
+            if(uid)localStorage.setItem(`pure-refine-${uid}`,JSON.stringify(nextRefine));
+          }catch{}
+          setRefineFlow(null);
+          setRefineState(rs=>({...rs,pausedIndex:idx,promptStage:"done",showPrompt:false}));
+          dbWriteProfileFields({refineState:nextRefine});
+        };
         return(
-          /* Build 7: when confirm is open, hide H2H wrapper visually
-             (pointerEvents:none + visibility:hidden) so the underlying
-             Sheet's backdrop can't be tapped to re-trigger close. Keeps
-             H2H mounted so user state is preserved if they pick 'Keep
-             going'. */
-          <div style={{position:"absolute",inset:0,zIndex:95,visibility:refineExitConfirm?"hidden":"visible",pointerEvents:refineExitConfirm?"none":"auto"}}>
-            <div style={{position:"absolute",top:0,left:0,right:0,zIndex:2,background:"var(--c-green)",color:"#fff",padding:"10px 16px max(env(safe-area-inset-top), 10px) 16px",display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:12,fontWeight:700,letterSpacing:0.3,fontFamily:"var(--font-body)",pointerEvents:"none"}}>
-              <span>Refining {refineFlow.index+1} of {total}</span>
-              <span style={{opacity:0.9}}>{refineCourse.name}{ref.subName?` — ${ref.subName}`:""}</span>
-            </div>
-            <HeadToHeadModal key={`refine-${refineFlow.index}`} course={refineCourse} targetSubName={ref.subName||undefined} ratings={ratings} friends={friends} userTees={profile?.userTees} bypassCap={true}
+          <div style={{position:"absolute",inset:0,zIndex:95}}>
+            <HeadToHeadModal key={`refine-${refineFlow.index}`} course={refineCourse} targetSubName={ref.subName||undefined} ratings={ratings} friends={friends} userTees={profile?.userTees} bypassCap={true} refineMode={true} onPause={pauseAndExit} refineHeader={`Refining ${refineFlow.index+1} of ${total} \u00b7 ${refineCourse.name}${ref.subName?" \u2014 "+ref.subName:""}`}
               onComplete={r=>{saveRating(ref.courseId,{...r,...(ref.subName?{subcourse:ref.subName}:{})},{refine:true});advance();}}
-              onClose={()=>{
-                /* Build 7: read confirm state from ref to avoid stale-closure
-                   bug. Previous version captured refineExitConfirm at render
-                   time; after the Sheet's 300ms close animation, the captured
-                   value was stale and re-fired confirm in a loop. */
-                if(refineExitConfirmRef.current)return;
-                if(refineFlow.index>0)setRefineExitConfirm(true);
-                else setRefineFlow(null);
-              }}/>
+              onClose={pauseAndExit}/>
           </div>
         );
-      })()}
-      {refineExitConfirm&&refineFlow&&(()=>{
-        /* Build 6: snapshot index up front + persist DB synchronously so a
-           quick re-render doesn't lose state. Previous bug had Pause/Discard
-           "bouncing back" — likely refineFlow getting nulled mid-batch then
-           re-set by a stale closure. Snapshot avoids the closure trap. */
-        const idx=refineFlow.index;
-        const onPause=()=>{
-          /* Pause: persist current index so user can resume later. */
-          const nextRefine={earlyRefs:refineState.earlyRefs,promptStage:"done",pausedIndex:idx};
-          setRefineFlow(null);
-          setRefineExitConfirm(false);
-          setRefineState(rs=>({...rs,pausedIndex:idx,promptStage:"done",showPrompt:false}));
-          /* Force-immediate DB persist so reload picks up the pause. */
-          dbWriteProfileFields({refineState:nextRefine});
-        };
-        const onKeepGoing=()=>{
-          /* Just dismiss the confirm; refine flow stays mounted. */
-          setRefineExitConfirm(false);
-        };
-        const onDiscard=()=>{
-          /* Wipe paused index + close. Earlyrefs tags stay so the prompt
-             can re-fire after another rating, but pausedIndex resets. */
-          const nextRefine={earlyRefs:refineState.earlyRefs,promptStage:"done",pausedIndex:null};
-          setRefineFlow(null);
-          setRefineExitConfirm(false);
-          setRefineState(rs=>({...rs,pausedIndex:null,promptStage:"done"}));
-          dbWriteProfileFields({refineState:nextRefine});
-        };
-        return(
-        <div onClick={onKeepGoing} style={{position:"fixed",inset:0,background:"rgba(28,25,23,0.72)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"fadeIn 200ms var(--ease-out)"}}>
-          <div onClick={e=>e.stopPropagation()} style={{background:"var(--c-bg)",borderRadius:"20px 20px 0 0",padding:"22px 20px calc(env(safe-area-inset-bottom, 0px) + 20px)",maxWidth:540,width:"100%",boxShadow:"0 -4px 40px rgba(0,0,0,0.25)",borderTop:"1px solid var(--c-border)",animation:"slideUp 300ms var(--ease-out)",maxHeight:"92dvh",overflowY:"auto",touchAction:"pan-y"}}>
-            <div style={{fontSize:18,fontWeight:500,fontFamily:"var(--font-display)",textAlign:"center",marginBottom:6,color:"var(--c-text)"}}>Pause refinement?</div>
-            <div style={{fontSize:13,color:"var(--c-sub)",lineHeight:1.5,textAlign:"center",marginBottom:18}}>You're {refineFlow.index} of {refineState.earlyRefs.length} done. We'll save your progress.</div>
-            <button type="button" onClick={onPause} className="pressable" style={{width:"100%",background:"var(--c-green)",color:"#fff",border:"none",borderRadius:12,padding:"12px",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"var(--font-body)",marginBottom:8}}>Pause (save progress)</button>
-            <button type="button" onClick={onKeepGoing} className="pressable" style={{width:"100%",background:"var(--c-card)",color:"var(--c-text)",border:"1px solid var(--c-border)",borderRadius:12,padding:"12px",fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"var(--font-body)",marginBottom:8}}>Keep going</button>
-            <button type="button" onClick={onDiscard} className="pressable" style={{width:"100%",background:"transparent",color:"var(--c-muted)",border:"none",padding:"8px",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"var(--font-body)"}}>Discard progress</button>
-          </div>
-        </div>);
       })()}
       {requestToast&&(
         <div style={{position:"absolute",left:16,right:16,bottom:"calc(env(safe-area-inset-bottom, 0px) + 76px)",zIndex:120,display:"flex",justifyContent:"center",pointerEvents:"none",animation:"slideUp 300ms var(--ease-out)"}}>
