@@ -6091,12 +6091,15 @@ function CreditsView({onBack}){
   </div>),document.body);
 }
 
-function SettingsView({settings,onUpdate,onBack,profile,onUpdateProfile,onSetHomeCourse,refineState,onStartRefine,ratings,onQuickLog,onOpenBatchEntry,onOpenHandicapEntry,onStartTour,onSignOut,onResetAccount,onOpenFeedback}){
+function SettingsView({settings,onUpdate,onBack,profile,onUpdateProfile,onSetHomeCourse,refineState,onStartRefine,ratings,onQuickLog,onOpenBatchEntry,onOpenHandicapEntry,onStartTour,onSignOut,onResetRatings,onResetEverything,onOpenFeedback}){
   const[editField,setEditField]=useState(null); // null | "name" | "email" | "home"
   const[showCredits,setShowCredits]=useState(false);
   /* Audience picker for "Hide My Ratings" — appears when toggling ON. Two
      choices: hide from everyone, or hide from non-friends only. */
   const[hideRatingsPicker,setHideRatingsPicker]=useState(false);
+  /* Build 10: chooser between soft reset (ratings only) and full reset
+     (everything including friends). */
+  const[resetPicker,setResetPicker]=useState(false);
   const[draft,setDraft]=useState("");
   const[courseSearch,setCourseSearch]=useState("");
   const[ghinResult,setGhinResult]=useState(null); // {imported, matched, skipped} on successful import
@@ -6439,20 +6442,20 @@ function SettingsView({settings,onUpdate,onBack,profile,onUpdateProfile,onSetHom
       </div>}
       {/* ─── Account section: sign out + danger zone reset.
             Always visible to authenticated users; the reset is gated by a confirm dialog. */}
-      {(onSignOut||onResetAccount)&&<div style={{marginTop:24}}>
+      {(onSignOut||onResetRatings||onResetEverything)&&<div style={{marginTop:24}}>
         <div style={{fontSize:10,fontWeight:700,color:"var(--c-muted)",letterSpacing:1,textTransform:"uppercase",marginBottom:12}}>Account</div>
         <div style={{background:"var(--c-card)",border:"1px solid var(--c-border)",borderRadius:12,overflow:"hidden"}}>
-          {onSignOut&&<button type="button" onClick={onSignOut} className="pressable" style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 16px",background:"none",border:"none",borderBottom:onResetAccount?"1px solid var(--c-border)":"none",cursor:"pointer",fontFamily:"var(--font-body)",textAlign:"left"}}>
+          {onSignOut&&<button type="button" onClick={onSignOut} className="pressable" style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 16px",background:"none",border:"none",borderBottom:(onResetRatings||onResetEverything)?"1px solid var(--c-border)":"none",cursor:"pointer",fontFamily:"var(--font-body)",textAlign:"left"}}>
             <div>
               <div style={{fontWeight:600,fontSize:14}}>Sign out</div>
               <div style={{color:"var(--c-muted)",fontSize:11,marginTop:2}}>Log out of your account on this device</div>
             </div>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--c-muted)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
           </button>}
-          {onResetAccount&&<button type="button" onClick={onResetAccount} className="pressable" style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 16px",background:"none",border:"none",cursor:"pointer",fontFamily:"var(--font-body)",textAlign:"left"}}>
+          {(onResetRatings||onResetEverything)&&<button type="button" onClick={()=>setResetPicker(true)} className="pressable" style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 16px",background:"none",border:"none",cursor:"pointer",fontFamily:"var(--font-body)",textAlign:"left"}}>
             <div>
-              <div style={{fontWeight:600,fontSize:14,color:"#b45309"}}>Reset all my data</div>
-              <div style={{color:"var(--c-muted)",fontSize:11,marginTop:2}}>Delete every rating, round, and bucket list entry. Your account stays.</div>
+              <div style={{fontWeight:600,fontSize:14,color:"#b45309"}}>Reset my data</div>
+              <div style={{color:"var(--c-muted)",fontSize:11,marginTop:2}}>Choose what to reset \u2014 just ratings, or everything.</div>
             </div>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b45309" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
           </button>}
@@ -6533,6 +6536,24 @@ function SettingsView({settings,onUpdate,onBack,profile,onUpdateProfile,onSetHom
             <div style={{fontSize:12,color:"var(--c-muted)",lineHeight:1.45}}>Nobody on Pure can see your ratings — not even friends.</div>
           </button>
           <button type="button" onClick={()=>setHideRatingsPicker(false)} style={{width:"100%",background:"transparent",color:"var(--c-muted)",border:"none",padding:"8px",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"var(--font-body)"}}>Cancel</button>
+        </div>
+      </Sheet>
+    )}
+    {resetPicker&&(
+      <Sheet onClose={()=>setResetPicker(false)}>
+        <div style={{padding:"4px 18px 18px"}}>
+          <div style={{fontSize:10,fontWeight:700,color:"#b45309",letterSpacing:1.5,textTransform:"uppercase",marginBottom:6}}>Reset My Data</div>
+          <h2 style={{fontSize:22,fontWeight:600,fontFamily:"var(--font-display)",lineHeight:1.2,marginBottom:8}}>What do you want to reset?</h2>
+          <div style={{fontSize:13,color:"var(--c-muted)",lineHeight:1.55,marginBottom:18}}>Both options keep your account, name, and username. Neither can be undone.</div>
+          {onResetRatings&&<button type="button" className="pressable" onClick={()=>{setResetPicker(false);onResetRatings();}} style={{width:"100%",textAlign:"left",background:"var(--c-card)",border:"1px solid var(--c-border)",borderRadius:12,padding:"14px 16px",cursor:"pointer",fontFamily:"var(--font-body)",marginBottom:10}}>
+            <div style={{fontWeight:600,fontSize:14,marginBottom:3}}>Reset ratings + start over</div>
+            <div style={{fontSize:12,color:"var(--c-muted)",lineHeight:1.45}}>Deletes your ratings, scores, and bucket list. Keeps your friends and profile. You'll re-pick your home course.</div>
+          </button>}
+          {onResetEverything&&<button type="button" className="pressable" onClick={()=>{setResetPicker(false);onResetEverything();}} style={{width:"100%",textAlign:"left",background:"var(--c-card)",border:"1px solid #b4530933",borderRadius:12,padding:"14px 16px",cursor:"pointer",fontFamily:"var(--font-body)",marginBottom:14}}>
+            <div style={{fontWeight:600,fontSize:14,marginBottom:3,color:"#b45309"}}>Reset everything</div>
+            <div style={{fontSize:12,color:"var(--c-muted)",lineHeight:1.45}}>Deletes ratings, scores, bucket list, friends, followers, reactions, and home course. Like starting from scratch.</div>
+          </button>}
+          <button type="button" onClick={()=>setResetPicker(false)} style={{width:"100%",background:"transparent",color:"var(--c-muted)",border:"none",padding:"8px",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"var(--font-body)"}}>Cancel</button>
         </div>
       </Sheet>
     )}
@@ -8338,22 +8359,71 @@ function App(){
     /* Force a full reload to clear all React state cleanly */
     window.location.reload();
   };
-  /* Reset all my data — wipes server-side rows for the current user (ratings, rounds,
-     statuses, tees, reactions, course requests) but keeps the auth account + users row.
-     Then resets the users row's profile state (home_course_id, welcome_tour_seen,
-     self_reported_handicap) so onboarding-style flows can run again. */
-  const handleResetAccount=async()=>{
+  /* Build 10: reset is now two options surfaced via the SettingsView picker.
+     Both share the "delete my ratings/scores/etc" core; only the full
+     reset also deletes friendships, reactions, and the user's followers
+     graph. Each has its own confirm copy + intro so the user knows what
+     they're choosing. */
+  const _resetCoreLocalStorage=(uid)=>{
+    try{
+      const prefixes=[
+        `pure-course-previews-${uid}`,
+        `pure-refine-stage-${uid}`,
+        `pure-refine-${uid}`,
+        `pure-refine-shown-15-${uid}`,
+        `pure-refine-shown-20-${uid}`,
+        `pure-baseline-done-${uid}`,
+        `pure_feedback_prompted_${uid}`,
+      ];
+      prefixes.forEach(k=>{try{localStorage.removeItem(k);}catch{}});
+    }catch{}
+  };
+  const handleResetRatings=async()=>{
     if(!session?.user?.id)return;
     const uid=session.user.id;
-    const ok=window.confirm("This will delete ALL your ratings, rounds, bucket list, and saved tees. Your account stays. Continue?");
+    const ok=window.confirm("Delete your ratings, scores, bucket list, and saved tees? Your friends and profile stay. You'll re-pick your home course.");
     if(!ok)return;
-    /* Second confirm — Pure had no recoverable backup of these rows, so we double-prompt
-       to prevent accidental taps from wiping months of journal entries. */
     const reallyOk=window.confirm("Are you sure? This can't be undone.");
     if(!reallyOk)return;
-    /* Run all deletes in parallel, but inspect each result so we can abort the reload
-       if anything failed. Otherwise the user thinks data is gone when it isn't.
-       Also revoke this device's push token so future pushes don't go to the
+    const results=await Promise.all([
+      supabase.from("ratings").delete().eq("user_id",uid),
+      supabase.from("imported_rounds").delete().eq("user_id",uid),
+      supabase.from("statuses").delete().eq("user_id",uid),
+      supabase.from("user_tees").delete().eq("user_id",uid),
+      supabase.from("course_requests").delete().eq("user_id",uid),
+    ]);
+    const failed=results.filter(r=>r.error);
+    if(failed.length){
+      _dbFail("reset ratings deletes",failed[0].error);
+      window.alert("Couldn't fully reset \u2014 some items may still be there. Check your connection and try again.");
+      return;
+    }
+    /* Soft reset: clear ratings-related profile fields BUT keep friends,
+       reactions, push tokens, hide_ratings/hide_shots/private_profile
+       (privacy settings persist across resets — they're identity-level). */
+    const{error:profErr}=await supabase.from("users").update({
+      home_course_id:null,
+      home_area:null,
+      self_reported_handicap:null,
+      self_reported_at:null,
+      refine_state:null,
+    }).eq("id",uid);
+    if(profErr){
+      _dbFail("reset profile update",profErr);
+      window.alert("Data was deleted but we couldn't reset your profile. Try signing out and back in.");
+      return;
+    }
+    _resetCoreLocalStorage(uid);
+    window.location.reload();
+  };
+  const handleResetEverything=async()=>{
+    if(!session?.user?.id)return;
+    const uid=session.user.id;
+    const ok=window.confirm("Delete EVERYTHING \u2014 ratings, scores, bucket list, friends, followers, reactions, and home course? Your account, name, username, and profile photo stay. Like starting from scratch.");
+    if(!ok)return;
+    const reallyOk=window.confirm("Are you absolutely sure? You'll lose all your friends and followers. This can't be undone.");
+    if(!reallyOk)return;
+    /* Revoke this device's push token so future pushes don't go to the
        just-reset account if the user later signs in as someone else. */
     try{
       const tok=window.__purePushToken;
@@ -8364,21 +8434,19 @@ function App(){
       supabase.from("imported_rounds").delete().eq("user_id",uid),
       supabase.from("statuses").delete().eq("user_id",uid),
       supabase.from("user_tees").delete().eq("user_id",uid),
-      supabase.from("reactions").delete().eq("user_id",uid),
       supabase.from("course_requests").delete().eq("user_id",uid),
-      /* Build 9 fix: reactions WHERE I'm the target too, so friend
-         reactions on my old ratings don't linger. */
+      /* Full reset: friendships (both directions) + reactions both sides */
+      supabase.from("reactions").delete().eq("user_id",uid),
       supabase.from("reactions").delete().eq("target_user_id",uid),
+      supabase.from("friendships").delete().eq("follower_id",uid),
+      supabase.from("friendships").delete().eq("followee_id",uid),
     ]);
     const failed=results.filter(r=>r.error);
     if(failed.length){
-      _dbFail("reset deletes",failed[0].error);
-      window.alert("Couldn't fully reset your data — some items may still be there. Check your connection and try again.");
+      _dbFail("reset everything deletes",failed[0].error);
+      window.alert("Couldn't fully reset \u2014 some items may still be there. Check your connection and try again.");
       return;
     }
-    /* Build 9 fix: reset refine_state and any other build-3+ fields too —
-       previously these survived a reset and led to ghost refine prompts
-       and other inconsistencies after wiping ratings. */
     const{error:profErr}=await supabase.from("users").update({
       home_course_id:null,
       home_area:null,
@@ -8392,25 +8460,10 @@ function App(){
     }).eq("id",uid);
     if(profErr){
       _dbFail("reset profile update",profErr);
-      window.alert("Your data was deleted but we couldn't reset your profile. Try signing out and back in.");
+      window.alert("Data was deleted but we couldn't reset your profile. Try signing out and back in.");
       return;
     }
-    /* Build 9 fix: wipe ALL per-user localStorage keys, not just two. Was
-       leaving baseline/feedback/refine-shown flags behind, causing the
-       post-reset UX to act like the user already saw all the onboarding-y
-       prompts even though their data is gone. */
-    try{
-      const prefixes=[
-        `pure-course-previews-${uid}`,
-        `pure-refine-stage-${uid}`,
-        `pure-refine-${uid}`,
-        `pure-refine-shown-15-${uid}`,
-        `pure-refine-shown-20-${uid}`,
-        `pure-baseline-done-${uid}`,
-        `pure_feedback_prompted_${uid}`,
-      ];
-      prefixes.forEach(k=>{try{localStorage.removeItem(k);}catch{}});
-    }catch{}
+    _resetCoreLocalStorage(uid);
     window.location.reload();
   };
   /* Set home course from Settings. If the user hasn't rated this course yet, open the
@@ -8831,7 +8884,7 @@ function App(){
       </div>}
 
       <div ref={mainScrollRef} style={{flex:1,overflowY:"auto",overscrollBehavior:"contain",touchAction:"pan-y"}}>
-        {showSettings?<SettingsView settings={settings} onUpdate={updateSettings} onBack={()=>setShowSettings(false)} profile={profile} onUpdateProfile={setProfile} onSetHomeCourse={handleSetHomeCourse} refineState={refineState} onStartRefine={()=>{setShowSettings(false);const startIdx=refineState.pausedIndex!=null?refineState.pausedIndex:0;setRefineFlow({index:startIdx});setRefineState(rs=>({...rs,pausedIndex:null}));}} ratings={ratings} onQuickLog={()=>setQuickLog({})} onOpenBatchEntry={openBatchEntry} onOpenHandicapEntry={openHandicapEntry} onStartTour={()=>{setShowSettings(false);setShowWelcomeTour(true);}} onSignOut={handleSignOut} onResetAccount={handleResetAccount} onOpenFeedback={()=>setFeedbackOpen({source:"settings",context:{tab,ratingsCount:Object.keys(ratings||{}).length}})}/>
+        {showSettings?<SettingsView settings={settings} onUpdate={updateSettings} onBack={()=>setShowSettings(false)} profile={profile} onUpdateProfile={setProfile} onSetHomeCourse={handleSetHomeCourse} refineState={refineState} onStartRefine={()=>{setShowSettings(false);const startIdx=refineState.pausedIndex!=null?refineState.pausedIndex:0;setRefineFlow({index:startIdx});setRefineState(rs=>({...rs,pausedIndex:null}));}} ratings={ratings} onQuickLog={()=>setQuickLog({})} onOpenBatchEntry={openBatchEntry} onOpenHandicapEntry={openHandicapEntry} onStartTour={()=>{setShowSettings(false);setShowWelcomeTour(true);}} onSignOut={handleSignOut} onResetRatings={handleResetRatings} onResetEverything={handleResetEverything} onOpenFeedback={()=>setFeedbackOpen({source:"settings",context:{tab,ratingsCount:Object.keys(ratings||{}).length}})}/>
         :course?<CourseDetail course={course} statuses={statuses} ratings={ratings} friends={friends} profile={profile} onBack={()=>{
           const prev=navStack[navStack.length-1];
           if(prev){setNavStack(s=>s.slice(0,-1));setCourse(null);if(prev.type==="friend")setViewFriend(prev.friend);else if(prev.type==="course")setCourse(prev.course);}
