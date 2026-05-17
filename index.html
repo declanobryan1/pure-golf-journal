@@ -509,6 +509,7 @@ async function dbWriteRating(courseId,subName,rating){
     is_early:!!rating.isEarly,first_impression:!!rating.firstImpression,
     impression_label:rating.impressionLabel||null,
     played_with:rating.playedWith||[],photos:rating.photos||[],
+    videos:rating.videos||[],
     comparisons:rating.comparisons||[],history:rating.history||[],
     tee:rating.tee||null,date:rating.date||null,
   },{onConflict:"user_id,course_id,sub_name"});
@@ -536,7 +537,7 @@ async function dbWriteImportedRound(round){
     course_rating:round.courseRating||null,slope:round.slope||null,
     tee_name:round.teeName||null,source:round.source||"manual",date:round.date||null,
     /* Build 3: persist photos, note, played_with too. Migration 006 adds these columns. */
-    photos:round.photos||[],note:round.note||null,played_with:round.playedWith||[],
+    photos:round.photos||[],videos:round.videos||[],note:round.note||null,played_with:round.playedWith||[],
   });
   if(error){_dbFail("imported_rounds insert",error);return false;}
   return true;
@@ -697,7 +698,7 @@ async function dbLoadAllFriendsData(friendIds){
   if(!r.error){
     (r.data||[]).forEach(row=>{
       const map=ratingsByUser[row.user_id]||(ratingsByUser[row.user_id]={});
-      const rec={overall:Number(row.overall),review:row.review||"",date:row.date||null,shotScore:row.shot_score,personalBest:row.personal_best,isHomeCourse:!!row.is_home_course,isEarly:!!row.is_early,firstImpression:!!row.first_impression,impressionLabel:row.impression_label,teeName:row.tee_name,courseRating:row.course_rating,slope:row.slope,tee:row.tee,playedWith:row.played_with||[],photos:row.photos||[]};
+      const rec={overall:Number(row.overall),review:row.review||"",date:row.date||null,shotScore:row.shot_score,personalBest:row.personal_best,isHomeCourse:!!row.is_home_course,isEarly:!!row.is_early,firstImpression:!!row.first_impression,impressionLabel:row.impression_label,teeName:row.tee_name,courseRating:row.course_rating,slope:row.slope,tee:row.tee,playedWith:row.played_with||[],photos:row.photos||[],videos:row.videos||[]};
       if(row.sub_name){
         const ex=map[row.course_id]||{allSubs:{}};
         ex.allSubs={...(ex.allSubs||{}),[row.sub_name]:rec};
@@ -773,6 +774,7 @@ async function dbLoadFolloweeActivity(uid,limit=50){
         date:row.date||null,
         shotScore:row.shot_score,
         photos:row.photos||[],
+        videos:row.videos||[],
         playedWith:row.played_with||[],
         isHomeCourse:!!row.is_home_course,
       },
@@ -801,7 +803,7 @@ async function dbLoadFriendDetails(friendId){
         isHomeCourse:!!row.is_home_course,isEarly:!!row.is_early,
         firstImpression:!!row.first_impression,impressionLabel:row.impression_label,
         teeName:row.tee_name,courseRating:row.course_rating,slope:row.slope,tee:row.tee,
-        playedWith:row.played_with||[],photos:row.photos||[],
+        playedWith:row.played_with||[],photos:row.photos||[],videos:row.videos||[],
         comparisons:row.comparisons||[],history:row.history||[],
       };
       if(row.sub_name){
@@ -2126,6 +2128,7 @@ function QuickLogModal({initialCourse,ratedCourses,friends,userTees,onSave,onClo
   const[subName,setSubName]=useState(null);
   const[note,setNote]=useState("");
   const[photos,setPhotos]=useState([]);
+  const[videos,setVideos]=useState([]);
   const[playedWith,setPlayedWith]=useState([]);
   const[error,setError]=useState(null);
   /* `saving` blocks duplicate submissions while the parent's onSave is in-flight. Without
@@ -2161,7 +2164,7 @@ function QuickLogModal({initialCourse,ratedCourses,friends,userTees,onSave,onClo
     if(s&&(!tee||(tee.source!=="score-only"&&(!tee.rating||!tee.slope)))){setError("Pick your tees, enter rating & slope, or choose 'log the score only'.");return;}
     setSaving(true);
     try{
-      await onSave({courseId,customCourseName:customCourseName||null,subName,date,score:s,holes,tee,note:note.trim()||null,photos:photos.map(p=>p.src),playedWith});
+      await onSave({courseId,customCourseName:customCourseName||null,subName,date,score:s,holes,tee,note:note.trim()||null,photos:photos.map(p=>p.src),videos:videos.map(v=>({url:v.url,path:v.path,thumb:v.thumb,duration:v.duration||null,size:v.size||null})),playedWith});
       /* Animate the modal out instead of letting the parent unmount us mid-render.
          close() flips into the slideDown animation, then onClose fires after 260ms. */
       close();
@@ -2273,7 +2276,7 @@ function QuickLogModal({initialCourse,ratedCourses,friends,userTees,onSave,onClo
             <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Windy day, fast greens..." style={{width:"100%",background:"var(--c-card)",border:"1px solid var(--c-border)",borderRadius:10,padding:"11px 12px",fontSize:14,fontFamily:"var(--font-body)",boxSizing:"border-box",outline:"none",color:"var(--c-text)"}}/>
           </div>
         </div>
-        <PhotoUpload photos={photos} setPhotos={setPhotos}/>
+        <PhotoUpload photos={photos} setPhotos={setPhotos} videos={videos} setVideos={setVideos}/>
         {friends&&friends.length>0&&<div style={{marginBottom:14}}>
           <div style={{fontSize:10,fontWeight:700,color:"var(--c-muted)",marginBottom:8,letterSpacing:1,textTransform:"uppercase"}}>Played With <span style={{fontWeight:400,opacity:0.6}}>(optional)</span></div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
@@ -2803,13 +2806,130 @@ function compressPhoto(file,maxDim=1600,quality=0.85){
   });
 }
 
-function PhotoUpload({photos,setPhotos}){
+/* Build 11: generate a JPEG thumbnail from a video file by drawing the first
+   frame at ~0.5s onto a canvas. Used as the poster image before the user
+   taps to play. Returns Promise<dataURL> (small JPEG, ~30KB). */
+function generateVideoThumb(file){
+  return new Promise(resolve=>{
+    try{
+      const url=URL.createObjectURL(file);
+      const video=document.createElement("video");
+      video.preload="metadata";
+      video.muted=true;
+      video.playsInline=true;
+      video.src=url;
+      video.addEventListener("loadedmetadata",()=>{
+        /* Seek to 0.5s (or 10% in for very short clips) for a meaningful frame */
+        const t=Math.min(0.5,(video.duration||1)*0.1);
+        video.currentTime=t;
+      },{once:true});
+      video.addEventListener("seeked",()=>{
+        try{
+          const w=video.videoWidth||640,h=video.videoHeight||360;
+          const maxDim=800;
+          const s=Math.min(1,maxDim/Math.max(w,h));
+          const cw=Math.round(w*s),ch=Math.round(h*s);
+          const canvas=document.createElement("canvas");canvas.width=cw;canvas.height=ch;
+          const ctx=canvas.getContext("2d");
+          if(!ctx){URL.revokeObjectURL(url);return resolve(null);}
+          ctx.drawImage(video,0,0,cw,ch);
+          const thumb=canvas.toDataURL("image/jpeg",0.8);
+          URL.revokeObjectURL(url);
+          resolve({thumb,duration:video.duration||null,width:w,height:h});
+        }catch{URL.revokeObjectURL(url);resolve(null);}
+      },{once:true});
+      video.addEventListener("error",()=>{URL.revokeObjectURL(url);resolve(null);},{once:true});
+    }catch{resolve(null);}
+  });
+}
+
+/* Build 11: upload a video file to Supabase Storage (bucket: pure-media).
+   File path: ${uid}/${timestamp}-${random}.${ext}. Returns the public URL
+   on success, null on failure. Caller already validated size + got thumb. */
+async function dbUploadVideo(file){
+  try{
+    const{data:sess}=await supabase.auth.getSession();
+    const uid=sess?.session?.user?.id;if(!uid)return null;
+    const ext=(file.name.split(".").pop()||"mp4").toLowerCase().replace(/[^a-z0-9]/g,"")||"mp4";
+    const path=`${uid}/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
+    const{error}=await supabase.storage.from("pure-media").upload(path,file,{cacheControl:"3600",upsert:false,contentType:file.type||"video/mp4"});
+    if(error){_dbFail("video upload",error);return null;}
+    const{data:pub}=supabase.storage.from("pure-media").getPublicUrl(path);
+    return{url:pub.publicUrl,path};
+  }catch(e){_dbFail("video upload",e);return null;}
+}
+
+/* Build 11: delete a video from Storage. Called when a rating/round is
+   deleted or when the user removes a video before saving. Safe to call
+   on a missing file. */
+async function dbDeleteVideo(path){
+  if(!path)return;
+  try{await supabase.storage.from("pure-media").remove([path]);}catch{}
+}
+
+/* Build 11: nuke a user's entire pure-media folder. Called from full
+   Reset Account flow. Lists every file in `${uid}/` and removes them in
+   one batch. Safe on empty folder. */
+async function dbDeleteAllUserMedia(uid){
+  if(!uid)return;
+  try{
+    const{data,error}=await supabase.storage.from("pure-media").list(uid,{limit:1000});
+    if(error||!data?.length)return;
+    const paths=data.map(f=>`${uid}/${f.name}`);
+    if(paths.length)await supabase.storage.from("pure-media").remove(paths);
+  }catch{}
+}
+
+/* Build 11: VideoTile — thumbnail tile that opens a fullscreen player on tap.
+   Lazy-loads the <video> element only on open so the rating detail doesn't
+   eat bandwidth showing dozens of preloaded videos. */
+function VideoTile({video,size=100}){
+  const[open,setOpen]=useState(false);
+  const dur=video?.duration!=null?Math.round(video.duration):null;
+  return(<>
+    <button type="button" className="pressable" onClick={()=>setOpen(true)} style={{width:size,height:size,borderRadius:10,overflow:"hidden",flexShrink:0,border:"1px solid var(--c-border)",padding:0,background:"#000",cursor:"pointer",position:"relative"}}>
+      {video?.thumb&&<img src={video.thumb} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>}
+      <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
+        <div style={{width:32,height:32,borderRadius:"50%",background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg>
+        </div>
+      </div>
+      {dur!=null&&<div style={{position:"absolute",bottom:4,right:4,background:"rgba(0,0,0,0.65)",color:"#fff",fontSize:9,padding:"2px 5px",borderRadius:3,fontWeight:700,fontFamily:"var(--font-body)"}}>{dur}s</div>}
+    </button>
+    {open&&ReactDOM.createPortal((
+      <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16,animation:"fadeIn 200ms var(--ease-out)"}}>
+        <button type="button" onClick={(e)=>{e.stopPropagation();setOpen(false);}} aria-label="Close" style={{position:"absolute",top:"max(env(safe-area-inset-top, 0px) + 14px, 18px)",right:14,width:36,height:36,borderRadius:"50%",background:"rgba(255,255,255,0.15)",border:"none",cursor:"pointer",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(8px)",zIndex:2,fontSize:18,fontFamily:"var(--font-body)"}}>{"\u2715"}</button>
+        <video src={video.url} poster={video.thumb||undefined} controls autoPlay playsInline style={{maxWidth:"100%",maxHeight:"100%",borderRadius:14,boxShadow:"0 24px 60px rgba(0,0,0,0.4)"}} onClick={e=>e.stopPropagation()}/>
+      </div>
+    ),document.body)}
+  </>);
+}
+
+function PhotoUpload({photos,setPhotos,videos,setVideos}){
+  /* Build 11: videos prop is optional — components that haven't opted in to
+     video support just don't pass it and the video upload path is hidden. */
+  const acceptsVideo=typeof setVideos==="function";
   const fileRef=useRef(null);
+  const[uploading,setUploading]=useState(false);
   const handleFiles=async e=>{
     const files=Array.from(e.target.files||[]);
     for(const file of files){
+      const isVideo=file.type&&file.type.startsWith("video/");
+      const isImage=file.type&&file.type.startsWith("image/");
+      if(isVideo){
+        if(!acceptsVideo){try{window.dispatchEvent(new CustomEvent("pure-db-error",{detail:{message:"Videos aren't supported here"}}));}catch{}continue;}
+        if(file.size>25*1024*1024){try{window.dispatchEvent(new CustomEvent("pure-db-error",{detail:{message:"Video too large. Max 25MB \u2014 try trimming it in Photos first."}}));}catch{}continue;}
+        setUploading(true);
+        const meta=await generateVideoThumb(file);
+        if(!meta){setUploading(false);try{window.dispatchEvent(new CustomEvent("pure-db-error",{detail:{message:"Couldn't read video. Try another."}}));}catch{}continue;}
+        const uploaded=await dbUploadVideo(file);
+        setUploading(false);
+        if(!uploaded){try{window.dispatchEvent(new CustomEvent("pure-db-error",{detail:{message:"Couldn't upload video. Check your connection."}}));}catch{}continue;}
+        setVideos(prev=>[...(prev||[]),{id:Date.now()+Math.random(),url:uploaded.url,path:uploaded.path,thumb:meta.thumb,duration:meta.duration,size:file.size}]);
+        continue;
+      }
       /* Skip non-images defensively (some Android/iOS pickers don't honor accept). */
-      if(file.type&&!file.type.startsWith("image/")){try{window.dispatchEvent(new CustomEvent("pure-db-error",{detail:{message:"Not a valid image"}}));}catch(err){console.warn("dispatchEvent failed:",err);}continue;}
+      if(!isImage){try{window.dispatchEvent(new CustomEvent("pure-db-error",{detail:{message:"Not a valid image or video"}}));}catch(err){console.warn("dispatchEvent failed:",err);}continue;}
       const compressed=await compressPhoto(file);
       if(!compressed){try{window.dispatchEvent(new CustomEvent("pure-db-error",{detail:{message:"Couldn't read photo. Try another."}}));}catch(err){console.warn("dispatchEvent failed:",err);}continue;}
       setPhotos(prev=>[...prev,{id:Date.now()+Math.random(),src:compressed,name:file.name}]);
@@ -2817,28 +2937,47 @@ function PhotoUpload({photos,setPhotos}){
     e.target.value="";
   };
   const remove=id=>setPhotos(prev=>prev.filter(p=>p.id!==id));
+  /* Build 11: removing a video also deletes the Storage file (fire-and-forget,
+     don't block UI on it). Path is captured at upload time. */
+  const removeVideo=v=>{setVideos(prev=>prev.filter(x=>x.id!==v.id));dbDeleteVideo(v.path);};
+  const hasMedia=photos.length>0||(videos&&videos.length>0);
+  const labelText=acceptsVideo?"Add a photo or video":"Add a photo";
+  const subText=acceptsVideo?"Your best shot or a quick clip. Videos under 25MB.":"Your best shot could become the course preview.";
   return(<div style={{marginBottom:16}}>
-    <div style={{fontSize:10,fontWeight:700,color:"var(--c-muted)",marginBottom:8,letterSpacing:1,textTransform:"uppercase"}}>Photos <span style={{fontWeight:400,opacity:0.6}}>(optional)</span></div>
-    <div className="pressable" onClick={()=>fileRef.current?.click()} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:"var(--c-green-dim)",border:"1px solid var(--c-green-border)",borderRadius:10,marginBottom:photos.length?10:0,cursor:"pointer"}}>
-      <div style={{fontSize:18}}>📸</div>
+    <div style={{fontSize:10,fontWeight:700,color:"var(--c-muted)",marginBottom:8,letterSpacing:1,textTransform:"uppercase"}}>{acceptsVideo?"Photos & Videos":"Photos"} <span style={{fontWeight:400,opacity:0.6}}>(optional)</span></div>
+    <div className="pressable" onClick={()=>!uploading&&fileRef.current?.click()} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:"var(--c-green-dim)",border:"1px solid var(--c-green-border)",borderRadius:10,marginBottom:hasMedia?10:0,cursor:uploading?"default":"pointer",opacity:uploading?0.7:1}}>
+      <div style={{fontSize:18}}>{uploading?"\u23F3":(acceptsVideo?"\u{1F4F7}":"\u{1F4F8}")}</div>
       <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:12,fontWeight:700,color:"var(--c-green)"}}>Add a photo</div>
-        <div style={{fontSize:10,color:"var(--c-sub)",marginTop:1}}>Your best shot could become the course preview.</div>
+        <div style={{fontSize:12,fontWeight:700,color:"var(--c-green)"}}>{uploading?"Uploading video\u2026":labelText}</div>
+        <div style={{fontSize:10,color:"var(--c-sub)",marginTop:1}}>{uploading?"Hang tight, this can take a few seconds.":subText}</div>
       </div>
     </div>
-    <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleFiles} style={{display:"none"}}/>
-    {photos.length>0&&<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+    <input ref={fileRef} type="file" accept={acceptsVideo?"image/*,video/*":"image/*"} multiple onChange={handleFiles} style={{display:"none"}}/>
+    {hasMedia&&<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
       {photos.map(p=>(
         <div key={p.id} style={{position:"relative",width:72,height:72,borderRadius:10,overflow:"hidden",border:"1px solid var(--c-border)"}}>
           <img src={p.src} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
           <button onClick={()=>remove(p.id)} style={{position:"absolute",top:3,right:3,width:20,height:20,borderRadius:"50%",background:"rgba(0,0,0,0.6)",border:"none",color:"#fff",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>{"\u2715"}</button>
         </div>
       ))}
+      {videos&&videos.map(v=>(
+        <div key={v.id} style={{position:"relative",width:72,height:72,borderRadius:10,overflow:"hidden",border:"1px solid var(--c-border)",background:"#000"}}>
+          {v.thumb&&<img src={v.thumb} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>}
+          {/* Play icon overlay so user knows it's a video */}
+          <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
+            <div style={{width:24,height:24,borderRadius:"50%",background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg>
+            </div>
+          </div>
+          {v.duration!=null&&<div style={{position:"absolute",bottom:3,right:3,background:"rgba(0,0,0,0.6)",color:"#fff",fontSize:9,padding:"1px 4px",borderRadius:3,fontWeight:600,fontFamily:"var(--font-body)"}}>{Math.round(v.duration)}s</div>}
+          <button onClick={()=>removeVideo(v)} style={{position:"absolute",top:3,right:3,width:20,height:20,borderRadius:"50%",background:"rgba(0,0,0,0.6)",border:"none",color:"#fff",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>{"\u2715"}</button>
+        </div>
+      ))}
     </div>}
   </div>);
 }
 
-function RoundFields({note,setNote,date,setDate,shotScore,setShotScore,photos,setPhotos,friends,playedWith,setPlayedWith,course,subName,userTees,tee,setTee}){
+function RoundFields({note,setNote,date,setDate,shotScore,setShotScore,photos,setPhotos,videos,setVideos,friends,playedWith,setPlayedWith,course,subName,userTees,tee,setTee}){
   const today=new Date().toISOString().split("T")[0];
   const y=(()=>{const d=new Date();d.setDate(d.getDate()-1);return d.toISOString().split("T")[0];})();
   const[pickingCustom,setPickingCustom]=React.useState(()=>!!(date&&date!==today&&date!==y));
@@ -2888,7 +3027,7 @@ function RoundFields({note,setNote,date,setDate,shotScore,setShotScore,photos,se
       <div style={{fontSize:11,color:"var(--c-muted)",marginBottom:10,lineHeight:1.45}}>Pick your tees for a more accurate handicap estimate. We'll remember them next time.</div>
       <TeePicker course={course} subName={subName} userTees={userTees} value={tee} onChange={setTee}/>
     </div>}
-    <PhotoUpload photos={photos} setPhotos={setPhotos}/>
+    <PhotoUpload photos={photos} setPhotos={setPhotos} videos={videos} setVideos={setVideos}/>
     {friends&&friends.length>0&&<div style={{marginBottom:14}}>
       <div style={{fontSize:10,fontWeight:700,color:"var(--c-muted)",marginBottom:8,letterSpacing:1,textTransform:"uppercase"}}>Played With <span style={{fontWeight:400,opacity:0.6}}>(optional)</span></div>
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
@@ -3559,13 +3698,13 @@ function HomeCourseFirstImpressionModal({course,onSave,onClose}){
 
 function FirstImpressionModal({course,onSave,onClose,friends,userTees}){
   const[pick,setPick]=useState(null);const[note,setNote]=useState("");const[selectedSub,setSelectedSub]=useState(0);
-  const[date,setDate]=useState(new Date().toISOString().split("T")[0]);const[shotScore,setShotScore]=useState("");const[photos,setPhotos]=useState([]);const[playedWith,setPlayedWith]=useState([]);const[tee,setTee]=useState(null);
+  const[date,setDate]=useState(new Date().toISOString().split("T")[0]);const[shotScore,setShotScore]=useState("");const[photos,setPhotos]=useState([]);const[videos,setVideos]=useState([]);const[playedWith,setPlayedWith]=useState([]);const[tee,setTee]=useState(null);
   /* `saving` blocks duplicate submissions while parent's onSave is in-flight. */
   const[saving,setSaving]=useState(false);
   const handleSave=async()=>{
     if(saving||!pick)return;
     setSaving(true);
-    try{await onSave({overall:pick.s,comparisons:[],review:note,date,shotScore:shotScore||null,teeName:tee?.teeName||null,courseRating:tee?.rating?Number(tee.rating):null,slope:tee?.slope?Number(tee.slope):null,tee:tee||null,photos:photos.map(p=>p.src),playedWith,firstImpression:true,...(course.subcourses?{subcourse:course.subcourses[selectedSub].name}:{})});}
+    try{await onSave({overall:pick.s,comparisons:[],review:note,date,shotScore:shotScore||null,teeName:tee?.teeName||null,courseRating:tee?.rating?Number(tee.rating):null,slope:tee?.slope?Number(tee.slope):null,tee:tee||null,photos:photos.map(p=>p.src),videos:videos.map(v=>({url:v.url,path:v.path,thumb:v.thumb,duration:v.duration||null,size:v.size||null})),playedWith,firstImpression:true,...(course.subcourses?{subcourse:course.subcourses[selectedSub].name}:{})});}
     finally{setSaving(false);}
   };
   return(<Sheet onClose={onClose}><div style={{padding:"8px 20px 36px"}}>
@@ -3596,7 +3735,7 @@ function FirstImpressionModal({course,onSave,onClose,friends,userTees}){
             <span style={{fontSize:11,color:"#fff",fontWeight:800}}>{"\u2713"}</span></div>}
         </button>);})}
     </div>
-    <RoundFields note={note} setNote={setNote} date={date} setDate={setDate} shotScore={shotScore} setShotScore={setShotScore} photos={photos} setPhotos={setPhotos} friends={friends} playedWith={playedWith} setPlayedWith={setPlayedWith} course={course} subName={course.subcourses?course.subcourses[selectedSub]?.name:null} userTees={userTees} tee={tee} setTee={setTee}/>
+    <RoundFields note={note} setNote={setNote} date={date} setDate={setDate} shotScore={shotScore} setShotScore={setShotScore} photos={photos} setPhotos={setPhotos} videos={videos} setVideos={setVideos} friends={friends} playedWith={playedWith} setPlayedWith={setPlayedWith} course={course} subName={course.subcourses?course.subcourses[selectedSub]?.name:null} userTees={userTees} tee={tee} setTee={setTee}/>
     <PrimaryBtn disabled={!pick} loading={saving} onClick={handleSave}>Save Rating</PrimaryBtn>
   </div></Sheet>);
 }
@@ -3606,14 +3745,14 @@ function FirstImpressionModal({course,onSave,onClose,friends,userTees}){
 ═══════════════════════════════════════════════════════════ */
 function BaselineRatingModal({course,targetSubName,onSave,onClose,friends,baselineIndex,baselineTotal,userTees}){
   const[pick,setPick]=useState(null);const[slider,setSlider]=useState(null);const[note,setNote]=useState("");
-  const[date,setDate]=useState(new Date().toISOString().split("T")[0]);const[shotScore,setShotScore]=useState("");const[photos,setPhotos]=useState([]);const[playedWith,setPlayedWith]=useState([]);const[tee,setTee]=useState(null);
+  const[date,setDate]=useState(new Date().toISOString().split("T")[0]);const[shotScore,setShotScore]=useState("");const[photos,setPhotos]=useState([]);const[videos,setVideos]=useState([]);const[playedWith,setPlayedWith]=useState([]);const[tee,setTee]=useState(null);
   /* `saving` blocks duplicate submissions while parent's onSave is in-flight. */
   const[saving,setSaving]=useState(false);
   const selectImpression=(o)=>{setPick(o);setSlider(o.s);};
   const handleSave=async()=>{
     if(saving||!pick||slider==null)return;
     setSaving(true);
-    try{await onSave({overall:Math.round(slider*10)/10,comparisons:[],review:note,date,shotScore:shotScore||null,teeName:tee?.teeName||null,courseRating:tee?.rating?Number(tee.rating):null,slope:tee?.slope?Number(tee.slope):null,tee:tee||null,photos:photos.map(p=>p.src),playedWith,baseline:true,firstImpression:true,impressionLabel:pick.label,...(targetSubName?{subcourse:targetSubName}:{})});}
+    try{await onSave({overall:Math.round(slider*10)/10,comparisons:[],review:note,date,shotScore:shotScore||null,teeName:tee?.teeName||null,courseRating:tee?.rating?Number(tee.rating):null,slope:tee?.slope?Number(tee.slope):null,tee:tee||null,photos:photos.map(p=>p.src),videos:videos.map(v=>({url:v.url,path:v.path,thumb:v.thumb,duration:v.duration||null,size:v.size||null})),playedWith,baseline:true,firstImpression:true,impressionLabel:pick.label,...(targetSubName?{subcourse:targetSubName}:{})});}
     finally{setSaving(false);}
   };
   return(<Sheet onClose={onClose}><div style={{padding:"8px 20px 36px"}}>
@@ -3667,7 +3806,7 @@ function BaselineRatingModal({course,targetSubName,onSave,onClose,friends,baseli
         <span>1.0</span><span>5.5</span><span>10.0</span>
       </div>
     </div>
-    <RoundFields note={note} setNote={setNote} date={date} setDate={setDate} shotScore={shotScore} setShotScore={setShotScore} photos={photos} setPhotos={setPhotos} friends={friends} playedWith={playedWith} setPlayedWith={setPlayedWith} course={course} subName={targetSubName||null} userTees={userTees} tee={tee} setTee={setTee}/>
+    <RoundFields note={note} setNote={setNote} date={date} setDate={setDate} shotScore={shotScore} setShotScore={setShotScore} photos={photos} setPhotos={setPhotos} videos={videos} setVideos={setVideos} friends={friends} playedWith={playedWith} setPlayedWith={setPlayedWith} course={course} subName={targetSubName||null} userTees={userTees} tee={tee} setTee={setTee}/>
     <PrimaryBtn disabled={!pick||slider==null} loading={saving} onClick={handleSave}>Save Rating</PrimaryBtn>
     <div style={{textAlign:"center",marginTop:10}}>
       <span style={{fontSize:11,color:"var(--c-muted)"}}>Head-to-head comparisons unlock after {baselineTotal} baseline ratings</span>
@@ -3692,7 +3831,7 @@ function HeadToHeadModal({course,targetSubName,ratings,onComplete,onClose,friend
   /* In refineMode, pretend the user picked a neutral "Solid" impression so
      the cap/floor logic still works but no UI is shown. */
   const[impression,setImpression]=useState(refineMode?{s:7,label:"Refined",color:"var(--c-green)"}:null);
-  const[note,setNote]=useState("");const[date,setDate]=useState(new Date().toISOString().split("T")[0]);const[shotScore,setShotScore]=useState("");const[photos,setPhotos]=useState([]);const[playedWith,setPlayedWith]=useState([]);const[tee,setTee]=useState(null);
+  const[note,setNote]=useState("");const[date,setDate]=useState(new Date().toISOString().split("T")[0]);const[shotScore,setShotScore]=useState("");const[photos,setPhotos]=useState([]);const[videos,setVideos]=useState([]);const[playedWith,setPlayedWith]=useState([]);const[tee,setTee]=useState(null);
   /* In refineMode the X button is a Pause action — synchronously persists
      progress + closes. Falls back to onClose for non-refine flows. */
   const handleCloseOrPause=()=>{if(refineMode&&onPause){onPause();}else{onClose();}};
@@ -3755,7 +3894,7 @@ function HeadToHeadModal({course,targetSubName,ratings,onComplete,onClose,friend
       if(refineMode){
         onComplete({overall:finalScore,comparisons:results.map(r=>({key:r.key,courseId:r.courseId,subName:r.subName,result:r.result})),...(targetSubName?{subcourse:targetSubName}:{})});
       }else{
-        onComplete({overall:finalScore,comparisons:results.map(r=>({key:r.key,courseId:r.courseId,subName:r.subName,result:r.result})),review:note,date,shotScore:shotScore||null,teeName:tee?.teeName||null,courseRating:tee?.rating?Number(tee.rating):null,slope:tee?.slope?Number(tee.slope):null,tee:tee||null,photos:photos.map(p=>p.src),playedWith,impressionLabel:impression?.label||null,...(targetSubName?{subcourse:targetSubName}:{})});
+        onComplete({overall:finalScore,comparisons:results.map(r=>({key:r.key,courseId:r.courseId,subName:r.subName,result:r.result})),review:note,date,shotScore:shotScore||null,teeName:tee?.teeName||null,courseRating:tee?.rating?Number(tee.rating):null,slope:tee?.slope?Number(tee.slope):null,tee:tee||null,photos:photos.map(p=>p.src),videos:videos.map(v=>({url:v.url,path:v.path,thumb:v.thumb,duration:v.duration||null,size:v.size||null})),playedWith,impressionLabel:impression?.label||null,...(targetSubName?{subcourse:targetSubName}:{})});
       }
     };
     return(<Sheet onClose={saveAndClose}><div style={{padding:"8px 20px 40px"}}>
@@ -3792,7 +3931,7 @@ function HeadToHeadModal({course,targetSubName,ratings,onComplete,onClose,friend
       </div>
     </div>
     {!refineMode&&<div style={{height:1,background:"var(--c-border)",marginBottom:20}}/>}
-    {!refineMode&&<RoundFields note={note} setNote={setNote} date={date} setDate={setDate} shotScore={shotScore} setShotScore={setShotScore} photos={photos} setPhotos={setPhotos} friends={friends} playedWith={playedWith} setPlayedWith={setPlayedWith} course={course} subName={targetSubName||null} userTees={userTees} tee={tee} setTee={setTee}/>}
+    {!refineMode&&<RoundFields note={note} setNote={setNote} date={date} setDate={setDate} shotScore={shotScore} setShotScore={setShotScore} photos={photos} setPhotos={setPhotos} videos={videos} setVideos={setVideos} friends={friends} playedWith={playedWith} setPlayedWith={setPlayedWith} course={course} subName={targetSubName||null} userTees={userTees} tee={tee} setTee={setTee}/>}
     <PrimaryBtn onClick={saveAndClose}>{refineMode?"Save updated rating":"Save to My Courses"}</PrimaryBtn>
   </div></Sheet>);}
   if(!current&&!finishing)return null;
@@ -4015,11 +4154,14 @@ function CourseDetail({course,statuses,ratings,friends,profile,onBack,onSetStatu
             ))}
           </div>}
         </div>
-        {rating.photos?.length>0&&<div style={{marginBottom:14}}>
-          <div style={{fontSize:10,fontWeight:700,color:"var(--c-muted)",letterSpacing:0.5,textTransform:"uppercase",marginBottom:8}}>Your Photos</div>
-          <div data-allow-horizontal style={{display:"flex",gap:8,overflowX:"auto",paddingBottom:4}}>
-            {rating.photos.map((src,i)=>(
-              <button key={`${i}-${src.slice(-24)}`} className="pressable" type="button" onClick={()=>setLightbox({photos:rating.photos,startIndex:i})} style={{width:100,height:100,borderRadius:10,overflow:"hidden",flexShrink:0,border:"1px solid var(--c-border)",padding:0,background:"none",cursor:"pointer"}}>
+        {(rating.photos?.length>0||rating.videos?.length>0)&&<div style={{marginBottom:14}}>
+          <div style={{fontSize:10,fontWeight:700,color:"var(--c-muted)",letterSpacing:0.5,textTransform:"uppercase",marginBottom:8}}>{rating.videos?.length>0?"Your Media":"Your Photos"}</div>
+          <div data-allow-horizontal style={{display:"flex",gap:8,overflowX:"auto",paddingBottom:4,WebkitOverflowScrolling:"touch",touchAction:"pan-x"}}>
+            {(rating.videos||[]).map((v,i)=>(
+              <VideoTile key={`v-${i}-${v.url?.slice(-12)}`} video={v} size={100}/>
+            ))}
+            {(rating.photos||[]).map((src,i)=>(
+              <button key={`p-${i}-${src.slice(-24)}`} className="pressable" type="button" onClick={()=>setLightbox({photos:rating.photos,startIndex:i})} style={{width:100,height:100,borderRadius:10,overflow:"hidden",flexShrink:0,border:"1px solid var(--c-border)",padding:0,background:"none",cursor:"pointer"}}>
                 <img src={src} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
               </button>))}
           </div>
@@ -4840,9 +4982,12 @@ function FriendsTab({friends,followers=[],activity:activityFromProps,onAddFriend
                 <span style={{fontSize:11,color:"var(--c-muted)"}}>{scoreLabel(item.rating.overall)}</span>
               </div>
               {item.rating.shotScore&&<div style={{fontSize:11,color:"var(--c-green)",fontWeight:600,marginTop:4}}>Shot: {item.rating.shotScore}</div>}
-              {item.rating.photos?.length>0&&<div data-allow-horizontal style={{marginTop:8,display:"flex",gap:6,overflowX:"auto"}}>
-                {item.rating.photos.map((src,pi)=>(
-                  <button key={pi} type="button" className="pressable" onClick={()=>openLightbox(item.rating.photos,pi)} style={{width:80,height:80,borderRadius:10,overflow:"hidden",flexShrink:0,border:"1px solid var(--c-border)",padding:0,background:"none",cursor:"pointer"}}>
+              {(item.rating.photos?.length>0||item.rating.videos?.length>0)&&<div data-allow-horizontal style={{marginTop:8,display:"flex",gap:6,overflowX:"auto",WebkitOverflowScrolling:"touch",touchAction:"pan-x"}}>
+                {(item.rating.videos||[]).map((v,vi)=>(
+                  <VideoTile key={`v-${vi}`} video={v} size={80}/>
+                ))}
+                {(item.rating.photos||[]).map((src,pi)=>(
+                  <button key={`p-${pi}`} type="button" className="pressable" onClick={()=>openLightbox(item.rating.photos,pi)} style={{width:80,height:80,borderRadius:10,overflow:"hidden",flexShrink:0,border:"1px solid var(--c-border)",padding:0,background:"none",cursor:"pointer"}}>
                     <img src={src} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
                   </button>
                 ))}
@@ -6996,9 +7141,12 @@ function ClubhouseActivityCard({item,rxKey,reactions,toggleEmoji,addComment,onSe
         </div>
         <div className="pressable" onClick={()=>onSelect(item.course)} style={{cursor:"pointer"}}><ScorePill score={item.rating.overall}/></div>
       </div>
-      {item.rating.photos?.length>0&&<div data-allow-horizontal style={{marginTop:10,paddingLeft:42,display:"flex",gap:6,overflowX:"auto"}}>
-        {item.rating.photos.map((src,i)=>(
-          <button key={`${i}-${src.slice(-24)}`} type="button" className="pressable" onClick={()=>onOpenLightbox&&onOpenLightbox(item.rating.photos,i)} style={{width:88,height:88,borderRadius:10,overflow:"hidden",flexShrink:0,border:"1px solid var(--c-border)",padding:0,background:"none",cursor:"pointer"}}>
+      {(item.rating.photos?.length>0||item.rating.videos?.length>0)&&<div data-allow-horizontal style={{marginTop:10,paddingLeft:42,display:"flex",gap:6,overflowX:"auto",WebkitOverflowScrolling:"touch",touchAction:"pan-x"}}>
+        {(item.rating.videos||[]).map((v,vi)=>(
+          <VideoTile key={`v-${vi}`} video={v} size={88}/>
+        ))}
+        {(item.rating.photos||[]).map((src,i)=>(
+          <button key={`p-${i}-${src.slice(-24)}`} type="button" className="pressable" onClick={()=>onOpenLightbox&&onOpenLightbox(item.rating.photos,i)} style={{width:88,height:88,borderRadius:10,overflow:"hidden",flexShrink:0,border:"1px solid var(--c-border)",padding:0,background:"none",cursor:"pointer"}}>
             <img src={src} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
           </button>
         ))}
@@ -7555,7 +7703,7 @@ function App(){
         const actRows=(_act&&_act.rows)||[];
         const noteRows=(_notes&&_notes.rows)||[];
         /* Imported rounds → onto profile.ghinRounds */
-        const importedRounds=irData.map(row=>({score:row.score,holes:row.holes,courseRating:row.course_rating,slope:row.slope,teeName:row.tee_name,subName:row.sub_name,date:row.date,courseName:row.course_name,courseId:row.course_id,source:row.source,photos:row.photos||[],note:row.note||null,playedWith:row.played_with||[]}));
+        const importedRounds=irData.map(row=>({score:row.score,holes:row.holes,courseRating:row.course_rating,slope:row.slope,teeName:row.tee_name,subName:row.sub_name,date:row.date,courseName:row.course_name,courseId:row.course_id,source:row.source,photos:row.photos||[],videos:row.videos||[],note:row.note||null,playedWith:row.played_with||[]}));
         const userTeesMap={};
         /* Build 3: keys are now composite (course_id + ":" + sub_name) for
            sub-course rows, plain course_id for main-course rows. TeePicker
@@ -7653,6 +7801,7 @@ function App(){
           tee:row.tee,
           playedWith:row.played_with||[],
           photos:row.photos||[],
+          videos:row.videos||[],
           comparisons:row.comparisons||[],
           history:row.history||[],
         };
@@ -7686,7 +7835,7 @@ function App(){
           if(cancelled||retry.error)return;
           const retryMap={};
           (retry.data||[]).forEach(row=>{
-            const r={overall:Number(row.overall),review:row.review||"",date:row.date||null,shotScore:row.shot_score,personalBest:row.personal_best,isHomeCourse:!!row.is_home_course,isEarly:!!row.is_early,firstImpression:!!row.first_impression,impressionLabel:row.impression_label,teeName:row.tee_name,courseRating:row.course_rating,slope:row.slope,tee:row.tee,playedWith:row.played_with||[],photos:row.photos||[],comparisons:row.comparisons||[],history:row.history||[]};
+            const r={overall:Number(row.overall),review:row.review||"",date:row.date||null,shotScore:row.shot_score,personalBest:row.personal_best,isHomeCourse:!!row.is_home_course,isEarly:!!row.is_early,firstImpression:!!row.first_impression,impressionLabel:row.impression_label,teeName:row.tee_name,courseRating:row.course_rating,slope:row.slope,tee:row.tee,playedWith:row.played_with||[],photos:row.photos||[],videos:row.videos||[],comparisons:row.comparisons||[],history:row.history||[]};
             if(row.sub_name){
               const ex=retryMap[row.course_id]||{allSubs:{}};
               ex.allSubs={...(ex.allSubs||{}),[row.sub_name]:r};
@@ -7808,7 +7957,7 @@ function App(){
           friend,course,
           rating:{
             overall:Number(row.overall),review:row.review||"",date:row.date||null,
-            shotScore:row.shot_score,photos:row.photos||[],
+            shotScore:row.shot_score,photos:row.photos||[],videos:row.videos||[],
             playedWith:row.played_with||[],isHomeCourse:!!row.is_home_course,
           },
           date:row.date||row.created_at,
@@ -8385,6 +8534,10 @@ function App(){
     if(!ok)return;
     const reallyOk=window.confirm("Are you sure? This can't be undone.");
     if(!reallyOk)return;
+    /* Build 11: also nuke Storage media (videos) since ratings + rounds
+       that reference them are about to disappear. Fire alongside the DB
+       deletes; we don't block on it. */
+    dbDeleteAllUserMedia(uid);
     const results=await Promise.all([
       supabase.from("ratings").delete().eq("user_id",uid),
       supabase.from("imported_rounds").delete().eq("user_id",uid),
@@ -8429,6 +8582,9 @@ function App(){
       const tok=window.__purePushToken;
       if(tok)await supabase.from("device_tokens").delete().eq("token",tok);
     }catch{}
+    /* Build 11: same Storage nuke as soft reset \u2014 covers any orphaned
+       videos so the user's folder is empty post-reset. */
+    dbDeleteAllUserMedia(uid);
     const results=await Promise.all([
       supabase.from("ratings").delete().eq("user_id",uid),
       supabase.from("imported_rounds").delete().eq("user_id",uid),
@@ -8516,6 +8672,16 @@ function App(){
       return;
     }
     if(play==="none"){
+      /* Build 11: clean up Storage videos before the rating row goes away.
+         Collect paths from the top-level rating + every sub-course rating,
+         then fire-and-forget delete (best-effort, no UI block). */
+      try{
+        const paths=[];
+        const collect=(r)=>{if(r?.videos?.length)r.videos.forEach(v=>{if(v?.path)paths.push(v.path);});};
+        collect(prevRating);
+        if(prevRating?.allSubs)Object.values(prevRating.allSubs).forEach(collect);
+        paths.forEach(p=>dbDeleteVideo(p));
+      }catch{}
       const okDelete=await dbDeleteRating(id);
       if(!okDelete&&prevRating!==undefined)setRatings(p=>({...p,[id]:prevRating}));
     }
