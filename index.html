@@ -3828,6 +3828,12 @@ function HeadToHeadModal({course,targetSubName,ratings,onComplete,onClose,friend
      result screen (refine isn't logging a new round, just updating the
      existing rating's score). */
   const[phase,setPhase]=useState(refineMode?"duel":"impression");const[finalScore,setFinalScore]=useState(null);const[finishing,setFinishing]=useState(false);
+  /* Build 11: optional manual override on the result reveal. null means
+     "use the calculated score." When user nudges the slider, this captures
+     their adjustment so saveAndClose writes the override value. */
+  const[overrideScore,setOverrideScore]=useState(null);
+  const[showOverride,setShowOverride]=useState(false);
+  const effectiveScore=overrideScore!=null?overrideScore:finalScore;
   /* In refineMode, pretend the user picked a neutral "Solid" impression so
      the cap/floor logic still works but no UI is shown. */
   const[impression,setImpression]=useState(refineMode?{s:7,label:"Refined",color:"var(--c-green)"}:null);
@@ -3891,10 +3897,11 @@ function HeadToHeadModal({course,targetSubName,ratings,onComplete,onClose,friend
        the new overall score. The user is updating their existing rating, not
        logging a new round. */
     const saveAndClose=()=>{
+      const score=effectiveScore;
       if(refineMode){
-        onComplete({overall:finalScore,comparisons:results.map(r=>({key:r.key,courseId:r.courseId,subName:r.subName,result:r.result})),...(targetSubName?{subcourse:targetSubName}:{})});
+        onComplete({overall:score,comparisons:results.map(r=>({key:r.key,courseId:r.courseId,subName:r.subName,result:r.result})),...(targetSubName?{subcourse:targetSubName}:{})});
       }else{
-        onComplete({overall:finalScore,comparisons:results.map(r=>({key:r.key,courseId:r.courseId,subName:r.subName,result:r.result})),review:note,date,shotScore:shotScore||null,teeName:tee?.teeName||null,courseRating:tee?.rating?Number(tee.rating):null,slope:tee?.slope?Number(tee.slope):null,tee:tee||null,photos:photos.map(p=>p.src),videos:videos.map(v=>({url:v.url,path:v.path,thumb:v.thumb,duration:v.duration||null,size:v.size||null})),playedWith,impressionLabel:impression?.label||null,...(targetSubName?{subcourse:targetSubName}:{})});
+        onComplete({overall:score,comparisons:results.map(r=>({key:r.key,courseId:r.courseId,subName:r.subName,result:r.result})),review:note,date,shotScore:shotScore||null,teeName:tee?.teeName||null,courseRating:tee?.rating?Number(tee.rating):null,slope:tee?.slope?Number(tee.slope):null,tee:tee||null,photos:photos.map(p=>p.src),videos:videos.map(v=>({url:v.url,path:v.path,thumb:v.thumb,duration:v.duration||null,size:v.size||null})),playedWith,impressionLabel:impression?.label||null,...(targetSubName?{subcourse:targetSubName}:{})});
       }
     };
     return(<Sheet onClose={saveAndClose}><div style={{padding:"8px 20px 40px"}}>
@@ -3904,8 +3911,8 @@ function HeadToHeadModal({course,targetSubName,ratings,onComplete,onClose,friend
     <div style={{textAlign:"center",marginBottom:28}}>
       <div style={{fontSize:10,fontWeight:700,color:"var(--c-green)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:12}}>Your Score</div>
       <div style={{fontSize:16,fontWeight:600,fontFamily:"var(--font-display)",marginBottom:20,lineHeight:1.2}}>{course.name}{targetSubName?" — "+targetSubName:""}</div>
-      <div className="count-up" style={{fontSize:80,fontWeight:300,fontFamily:"var(--font-display)",color:scoreColor(finalScore),lineHeight:1,letterSpacing:-3,marginBottom:18}}>{finalScore.toFixed(1)}</div>
-      <div style={{fontSize:14,fontWeight:600,color:scoreColor(finalScore)}}>{scoreLabel(finalScore)}</div>
+      <div className="count-up" style={{fontSize:80,fontWeight:300,fontFamily:"var(--font-display)",color:scoreColor(effectiveScore),lineHeight:1,letterSpacing:-3,marginBottom:18}}>{effectiveScore.toFixed(1)}</div>
+      <div style={{fontSize:14,fontWeight:600,color:scoreColor(effectiveScore)}}>{scoreLabel(effectiveScore)}</div>
       {willBeEarly&&<div style={{marginTop:14,display:"flex",justifyContent:"center"}}><EarlyRatingChip/></div>}
       {willBeEarly&&<div style={{marginTop:8,fontSize:11,color:"var(--c-muted)",maxWidth:280,marginLeft:"auto",marginRight:"auto",lineHeight:1.5}}>You've only rated a few courses — this one may shift once your scale is more calibrated. We'll revisit it after you've rated 15.</div>}
       {(()=>{
@@ -3929,6 +3936,28 @@ function HeadToHeadModal({course,targetSubName,ratings,onComplete,onClose,friend
         {results.map(r=>(<div key={r.key} style={{background:"var(--c-surface)",border:"1px solid var(--c-border)",borderRadius:8,padding:"6px 10px",fontSize:11}}>
           <span style={{color:"var(--c-sub)"}}>vs {r.label}</span></div>))}
       </div>
+      {/* Build 11: manual override — lets the user nudge the calculated
+         score if it doesn't match their gut. Default-collapsed so users
+         who trust the math just save and move on. */}
+      {!showOverride?
+        <button type="button" onClick={()=>{setShowOverride(true);if(overrideScore==null)setOverrideScore(finalScore);}} className="pressable" style={{marginTop:18,background:"transparent",border:"1px solid var(--c-border)",borderRadius:10,padding:"8px 14px",fontSize:11,fontWeight:600,color:"var(--c-sub)",cursor:"pointer",fontFamily:"var(--font-body)"}}>Adjust this rating</button>
+        :<div style={{marginTop:18,padding:"14px 16px",background:"var(--c-card)",border:"1px solid var(--c-border)",borderRadius:12,textAlign:"left"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--c-muted)",letterSpacing:0.5,textTransform:"uppercase"}}>Adjust rating</div>
+            <button type="button" onClick={()=>{setOverrideScore(finalScore);setShowOverride(false);}} className="pressable" style={{background:"none",border:"none",color:"var(--c-muted)",fontSize:11,fontWeight:600,cursor:"pointer",padding:"4px 8px",fontFamily:"var(--font-body)"}}>Reset</button>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:6}}>
+            <span style={{fontSize:11,color:"var(--c-muted)",fontWeight:600,width:18,textAlign:"center"}}>1</span>
+            <input type="range" min="1" max="10" step="0.1" value={effectiveScore} onChange={e=>setOverrideScore(Number(e.target.value))} style={{flex:1,accentColor:"var(--c-green)"}}/>
+            <span style={{fontSize:11,color:"var(--c-muted)",fontWeight:600,width:18,textAlign:"center"}}>10</span>
+          </div>
+          <div style={{fontSize:11,color:"var(--c-muted)",lineHeight:1.4,textAlign:"center"}}>
+            {overrideScore!=null&&Math.abs(overrideScore-finalScore)>=0.05
+              ?`Pure suggested ${finalScore.toFixed(1)} \u2014 you adjusted to ${overrideScore.toFixed(1)}.`
+              :"Drag to nudge if the calculated score doesn't feel right."}
+          </div>
+        </div>
+      }
     </div>
     {!refineMode&&<div style={{height:1,background:"var(--c-border)",marginBottom:20}}/>}
     {!refineMode&&<RoundFields note={note} setNote={setNote} date={date} setDate={setDate} shotScore={shotScore} setShotScore={setShotScore} photos={photos} setPhotos={setPhotos} videos={videos} setVideos={setVideos} friends={friends} playedWith={playedWith} setPlayedWith={setPlayedWith} course={course} subName={targetSubName||null} userTees={userTees} tee={tee} setTee={setTee}/>}
@@ -6426,8 +6455,12 @@ function SettingsView({settings,onUpdate,onBack,profile,onUpdateProfile,onSetHom
 
       {refineState&&(()=>{
         const paused=refineState.pausedIndex!=null;
-        const done=refineState.promptStage==="done"&&!paused;
         const count=refineState.earlyRefs.length;
+        /* Build 11 hotfix: "complete" requires both promptStage='done' AND
+           having had refs to refine. Post-reset, promptStage stays at the
+           hydrated 'pending-15' default and count is 0 — should show
+           "No early ratings to refine," not "Complete." */
+        const done=refineState.promptStage==="done"&&!paused&&count===0&&refineState._everCompleted;
         /* Refine unlocks at 10 rated units — prevents users from refining their first
            few ratings while their internal scale is still calibrating. The auto-prompt
            fires at 15, but the manual entry opens at 10 so users who feel ready can
@@ -8277,7 +8310,15 @@ function App(){
   useEffect(()=>{
     if(refineHydratedRef.current||!profile)return;
     refineHydratedRef.current=true;
-    if(profile.refineState)setRefineState(rs=>({...rs,...profile.refineState,showPrompt:false}));
+    /* Build 11 hotfix: when profile.refineState is null (e.g. post-Reset),
+       explicitly reset React state to defaults. Previously we left React
+       state alone, which meant a refresh after reset could keep stale
+       in-memory state if anything had touched it before hydration. */
+    if(profile.refineState){
+      setRefineState(rs=>({...rs,...profile.refineState,showPrompt:false}));
+    }else{
+      setRefineState({earlyRefs:[],promptStage:"pending-15",pausedIndex:null,showPrompt:false});
+    }
   },[profile?.id]);
   /* Persist refineState to DB on every change (debounced 500ms). Strip the
      transient `showPrompt` flag since that's session-only UI state. */
@@ -8286,11 +8327,11 @@ function App(){
     if(!refineHydratedRef.current)return; // skip the initial mount
     if(refinePersistTimerRef.current)clearTimeout(refinePersistTimerRef.current);
     refinePersistTimerRef.current=setTimeout(()=>{
-      const{earlyRefs,promptStage,pausedIndex}=refineState;
-      dbWriteProfileFields({refineState:{earlyRefs,promptStage,pausedIndex}});
+      const{earlyRefs,promptStage,pausedIndex,_everCompleted}=refineState;
+      dbWriteProfileFields({refineState:{earlyRefs,promptStage,pausedIndex,_everCompleted:!!_everCompleted}});
     },500);
     return()=>{if(refinePersistTimerRef.current)clearTimeout(refinePersistTimerRef.current);};
-  },[refineState.earlyRefs,refineState.promptStage,refineState.pausedIndex]);
+  },[refineState.earlyRefs,refineState.promptStage,refineState.pausedIndex,refineState._everCompleted]);
   const[refineFlow,setRefineFlow]=useState(null); // {index, refs} when actively refining
   const[refineExitConfirm,setRefineExitConfirm]=useState(false);
   /* Build 7: latest-value ref so the H2H Sheet's onClose closure (captured at
@@ -9227,7 +9268,7 @@ function App(){
           const nextIndex=refineFlow.index+1;
           if(nextIndex>=total){
             setRefineFlow(null);
-            setRefineState({earlyRefs:[],promptStage:"done",showPrompt:false});
+            setRefineState({earlyRefs:[],promptStage:"done",showPrompt:false,_everCompleted:true});
             setRatings(p=>{
               const next={...p};
               Object.keys(next).forEach(k=>{
