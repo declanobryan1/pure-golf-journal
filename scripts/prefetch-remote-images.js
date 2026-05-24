@@ -50,7 +50,7 @@ function fetchOnce(url) {
   return new Promise((resolve, reject) => {
     const req = https.get(
       url,
-      { timeout: 30000, headers: { "User-Agent": "PureGolfJournalBuild/1.0 (declanobryan@gmail.com)" } },
+      { timeout: 30000, headers: { "User-Agent": "PureGolfJournalBuild/1.0 (support@puregolfjournal.com)" } },
       (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           fetchOnce(new URL(res.headers.location, url).toString()).then(resolve, reject);
