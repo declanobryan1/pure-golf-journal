@@ -104,8 +104,8 @@ You have the following rights regarding your data:
 - **Access** — view all your data inside the App at any time
 - **Delete a single rating or round** — tap and hold any rating or score to remove it
 - **Reset your account** — Settings → Account → Reset All My Data deletes all your ratings, rounds, statuses, and saved tees while keeping your account
-- **Delete your account entirely** — email us at [SUPPORT_EMAIL_TBD] and we will delete your account and all associated data within 30 days
-- **Export your data** — email us at [SUPPORT_EMAIL_TBD] to request a copy of your data in JSON format
+- **Delete your account entirely** — email us at support@puregolfjournal.com and we will delete your account and all associated data within 30 days
+- **Export your data** — email us at support@puregolfjournal.com to request a copy of your data in JSON format
 - **Opt out of friend visibility** — toggle Privacy → Private Profile in Settings to hide your activity from friends
 
 If you are in the EU, UK, or California, you have additional rights under GDPR and CCPA, including the right to data portability, the right to object to processing, and the right to lodge a complaint with a regulator. We honor these rights for all users regardless of jurisdiction.
@@ -154,16 +154,22 @@ Your continued use of Pure after a policy update constitutes acceptance of the u
 
 ---
 
-## 11. Contact Us
+## 11. Course imagery & intellectual property
+
+Pure displays photos and information for golf courses sourced from freely-licensed media (such as Wikimedia Commons), course operator websites used in a small editorial capacity, user-submitted photos, and stock photo libraries. Rights holders who believe content in Pure should be removed or corrected may submit a takedown request. See our separate [Copyright Notice & Takedown Policy](COPYRIGHT_NOTICE.md) for details.
+
+---
+
+## 12. Contact Us
 
 For questions, requests, or concerns about this policy or your data:
 
-**Email:** [SUPPORT_EMAIL_TBD]
+**Email:** support@puregolfjournal.com
 
 We aim to respond within 7 business days.
 
 ---
 
 **Pure Golf Journal**
-[COMPANY_OR_INDIVIDUAL_NAME_TBD]
-[ADDRESS_TBD]
+Declan O'Bryan
+Austin, TX, USA
