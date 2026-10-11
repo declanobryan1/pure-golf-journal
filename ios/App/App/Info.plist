@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>Pure</string>
+	<string>Pure</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -18,10 +18,35 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.declanobryan.puregolfjournal</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.declanobryan.puregolfjournal</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Pure uses your camera so you can take photos and videos of the courses you play and attach them to your ratings and round logs.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Pure uses your contacts to help you find golf buddies who already use the app. Names are matched on-device — your contact list is never uploaded.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Pure uses your microphone so videos you record of your rounds have sound.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Pure saves your shareable rating cards to your camera roll so you can post them to Instagram, Messages, or anywhere else.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Pure may access your photo library so you can attach photos to your round logs and course ratings.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
@@ -36,26 +61,5 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>com.declanobryan.puregolfjournal</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>com.declanobryan.puregolfjournal</string>
-			</array>
-		</dict>
-	</array>
-	<key>NSContactsUsageDescription</key>
-	<string>Pure uses your contacts to help you find golf buddies who already use the app. Names are matched on-device — your contact list is never uploaded.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Pure saves your shareable rating cards to your camera roll so you can post them to Instagram, Messages, or anywhere else.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Pure may access your photo library so you can attach photos to your round logs and course ratings.</string>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>remote-notification</string>
-	</array>
 </dict>
 </plist>
